@@ -4,37 +4,30 @@ export default function Board({
   board,
   validMoves,
   lastMove,
-  currentPlayer,
   onCellClick,
 }) {
-  function isValidMove(r, c) {
-    return validMoves.some((m) => m.row === r && m.col === c);
-  }
+  const isValid = (r, c) =>
+    validMoves.some((m) => m.row === r && m.col === c);
 
   return (
     <div className="board">
       {board.map((row, r) =>
         row.map((cell, c) => {
-          const valid = isValidMove(r, c);
-          const isLast =
+          const last =
             lastMove && lastMove.row === r && lastMove.col === c;
 
-          let pieceClass = "";
-          if (cell === 1) pieceClass = "piece black";
-          else if (cell === -1) pieceClass = "piece white";
+          let piece = "";
+          if (cell === 1) piece = "piece black";
+          if (cell === -1) piece = "piece white";
 
           return (
             <div
               key={`${r}-${c}`}
-              className={`cell ${valid ? "valid" : ""}`}
+              className={`cell ${isValid(r, c) ? "valid" : ""}`}
               onClick={() => onCellClick(r, c)}
             >
               {cell !== 0 && (
-                <div
-                  className={`${pieceClass} ${
-                    isLast ? "last-move" : ""
-                  }`}
-                />
+                <div className={`${piece} ${last ? "last-move" : ""}`} />
               )}
             </div>
           );

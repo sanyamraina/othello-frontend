@@ -1,6 +1,6 @@
-import { useState, useEffect } from "react";
+import { useEffect, useState } from "react";
 import Board from "./Board";
-import { makeMove } from "./api";
+import { makeMove, makeAIMove } from "./api";
 import "./styles.css";
 
 const initialBoard = [
@@ -14,72 +14,45 @@ const initialBoard = [
   [0, 0, 0, 0, 0, 0, 0, 0],
 ];
 
-function findLastMove(prevBoard, newBoard) {
-  for (let r = 0; r < 8; r++) {
-    for (let c = 0; c < 8; c++) {
-      if (prevBoard[r][c] === 0 && newBoard[r][c] !== 0) {
-        return { row: r, col: c };
-      }
-    }
-  }
-  return null;
-}
+const initialValidMoves = [
+  { row: 2, col: 3 },
+  { row: 3, col: 2 },
+  { row: 4, col: 5 },
+  { row: 5, col: 4 },
+];
 
 function colorName(p) {
   return p === 1 ? "Black" : "White";
 }
-function colorKey(p) {
-  return p === 1 ? "black" : "white";
-}
 
 export default function App() {
   const [board, setBoard] = useState(initialBoard);
-  const [player, setPlayer] = useState(1); // 1 = Black, -1 = White
-  const [validMoves, setValidMoves] = useState([]);
+  const [player, setPlayer] = useState(1);
+  const [validMoves, setValidMoves] = useState(initialValidMoves);
   const [lastMove, setLastMove] = useState(null);
   const [loading, setLoading] = useState(false);
+  const [error, setError] = useState("");
 
-  // Game configuration
-  const [mode, setMode] = useState("HUMAN_VS_AI"); // "HUMAN_VS_HUMAN" | "HUMAN_VS_AI"
-  const [aiColor, setAiColor] = useState(-1); // 1 = Black AI, -1 = White AI (only used in HUMAN_VS_AI)
+  const [mode, setMode] = useState("HUMAN_VS_AI");
+  const [aiColor, setAiColor] = useState(-1);
 
-  // Initial legal moves (temporary bootstrap)
-  useEffect(() => {
-    setValidMoves([
-      { row: 2, col: 3 },
-      { row: 3, col: 2 },
-      { row: 4, col: 5 },
-      { row: 5, col: 4 },
-    ]);
-  }, []);
-
-  // If it's AI's turn, trigger AI move automatically (also handles AI as Black on move 1)
   useEffect(() => {
     if (mode !== "HUMAN_VS_AI") return;
-    if (loading) return;
     if (player !== aiColor) return;
+    if (loading) return;
 
     (async () => {
       try {
         setLoading(true);
+        setError("");
+        const res = await makeAIMove({ board, player });
 
-        const ai = await makeMove({
-          board,
-          player,
-          use_ai: true,
-        });
-
-        const aiMove = findLastMove(board, ai.board);
-
-        setBoard(ai.board);
-        setPlayer(ai.next_player);
-        setValidMoves(ai.valid_moves);
-
-        if (aiMove) {
-          setLastMove({ ...aiMove, by: colorKey(player) });
-        }
-
-        // if game over, backend will signal it; we simply stop as state updates end the loop
+        setBoard(res.board);
+        setPlayer(res.next_player);
+        setValidMoves(res.valid_moves || []);
+        setLastMove(res.move || null);
+      } catch (e) {
+        setError(e.message || "AI move failed");
       } finally {
         setLoading(false);
       }
@@ -88,31 +61,23 @@ export default function App() {
 
   async function handleCellClick(row, col) {
     if (loading) return;
-
-    // In Human vs AI, ignore clicks when it's AI's turn
     if (mode === "HUMAN_VS_AI" && player === aiColor) return;
 
-    // If the user clicks an invalid square, just ignore
     const isValid = validMoves.some((m) => m.row === row && m.col === col);
-    if (validMoves.length > 0 && !isValid) return;
+    if (!isValid) return;
 
     try {
       setLoading(true);
+      setError("");
 
-      const result = await makeMove({
-        board,
-        player,
-        row,
-        col,
-        use_ai: false,
-      });
+      const res = await makeMove({ board, player, row, col });
 
-      setBoard(result.board);
-      setPlayer(result.next_player);
-      setValidMoves(result.valid_moves);
-      setLastMove({ row, col, by: colorKey(player) });
-
-      // No direct AI call here anymore — the useEffect above handles AI turns cleanly.
+      setBoard(res.board);
+      setPlayer(res.next_player);
+      setValidMoves(res.valid_moves || []);
+      setLastMove({ row, col });
+    } catch (e) {
+      setError(e.message || "Move failed");
     } finally {
       setLoading(false);
     }
@@ -121,36 +86,20 @@ export default function App() {
   function resetGame() {
     setBoard(initialBoard);
     setPlayer(1);
+    setValidMoves(initialValidMoves);
     setLastMove(null);
     setLoading(false);
-
-    // reset valid moves bootstrap
-    setValidMoves([
-      { row: 2, col: 3 },
-      { row: 3, col: 2 },
-      { row: 4, col: 5 },
-      { row: 5, col: 4 },
-    ]);
+    setError("");
   }
 
-  const aiEnabled = mode === "HUMAN_VS_AI";
-  const aiPlays = aiEnabled ? colorName(aiColor) : "None";
-
   return (
-    <div className="app">
-      <h1>Othello</h1>
+    <div className="container-fluid min-vh-100 d-flex flex-column align-items-center">
+      <h1 className="mt-4">Othello</h1>
 
-      <div style={{ display: "inline-flex", gap: 12, alignItems: "center" }}>
+      <div className="d-flex flex-wrap gap-3 my-3 align-items-center">
         <label>
           Mode:&nbsp;
-          <select
-            value={mode}
-            onChange={(e) => {
-              const nextMode = e.target.value;
-              setMode(nextMode);
-              // keep aiColor as-is; it only matters in HUMAN_VS_AI
-            }}
-          >
+          <select value={mode} onChange={(e) => setMode(e.target.value)}>
             <option value="HUMAN_VS_AI">Human vs AI</option>
             <option value="HUMAN_VS_HUMAN">Human vs Human</option>
           </select>
@@ -161,7 +110,7 @@ export default function App() {
           <select
             value={aiColor}
             onChange={(e) => setAiColor(Number(e.target.value))}
-            disabled={!aiEnabled}
+            disabled={mode !== "HUMAN_VS_AI"}
           >
             <option value={1}>Black</option>
             <option value={-1}>White</option>
@@ -171,24 +120,31 @@ export default function App() {
         <button onClick={resetGame}>Reset</button>
       </div>
 
-      <p style={{ marginTop: 12 }}>
+      <p>
         Turn: <strong>{colorName(player)}</strong>
-        {aiEnabled && (
+        {mode === "HUMAN_VS_AI" && (
           <>
-            &nbsp;|&nbsp;AI: <strong>{aiPlays}</strong>
+            &nbsp;|&nbsp;AI: <strong>{colorName(aiColor)}</strong>
           </>
         )}
       </p>
 
-      <Board
-        board={board}
-        validMoves={validMoves}
-        lastMove={lastMove}
-        currentPlayer={player}
-        onCellClick={handleCellClick}
-      />
+      {error && (
+        <div className="alert alert-danger py-2 px-3" style={{ maxWidth: 720 }}>
+          {error}
+        </div>
+      )}
 
-      {loading && <p>Thinking…</p>}
+      <div className="d-flex justify-content-center w-100">
+        <Board
+          board={board}
+          validMoves={validMoves}
+          lastMove={lastMove}
+          onCellClick={handleCellClick}
+        />
+      </div>
+
+      {loading && <p className="mt-2">Thinking…</p>}
     </div>
   );
 }

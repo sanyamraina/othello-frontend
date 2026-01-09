@@ -13,13 +13,12 @@ body {
   grid-template-columns: repeat(8, 50px);
   grid-template-rows: repeat(8, 50px);
   gap: 2px;
-  margin: 20px auto;
   background: #0f2e22;
   padding: 6px;
   border-radius: 10px;
 }
 
-/* Board cell */
+
 .cell {
   width: 50px;
   height: 50px;
@@ -28,46 +27,32 @@ body {
   display: flex;
   align-items: center;
   justify-content: center;
-  position: relative;
 }
 
 .cell.valid {
   background: #388e3c;
 }
 
-/* Game piece base */
 .piece {
+  position: relative; /* 🔑 REQUIRED */
   width: 36px;
   height: 36px;
   border-radius: 50%;
-  position: relative;
-
-  /* 3D illusion */
   box-shadow:
-    inset 0 2px 4px rgba(255, 255, 255, 0.4),
-    inset 0 -3px 6px rgba(0, 0, 0, 0.6),
-    0 3px 6px rgba(0, 0, 0, 0.6);
+    inset 0 2px 4px rgba(255,255,255,0.4),
+    inset 0 -3px 6px rgba(0,0,0,0.6),
+    0 3px 6px rgba(0,0,0,0.6);
 }
 
-/* Black piece */
 .piece.black {
-  background: radial-gradient(
-    circle at 30% 30%,
-    #555,
-    #000 70%
-  );
+  background: radial-gradient(circle at 30% 30%, #555, #000 70%);
 }
 
-/* White piece */
 .piece.white {
-  background: radial-gradient(
-    circle at 30% 30%,
-    #fff,
-    #ccc 70%
-  );
+  background: radial-gradient(circle at 30% 30%, #fff, #ccc 70%);
 }
 
-/* Ring effect */
+
 .piece::after {
   content: "";
   position: absolute;
@@ -76,8 +61,8 @@ body {
   border: 2px solid rgba(255, 255, 255, 0.35);
 }
 
-/* Last move emphasis */
+
+
 .piece.last-move {
   outline: 2px solid gold;
-  outline-offset: 2px;
 }
