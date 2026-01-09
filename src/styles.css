@@ -1,3 +1,9 @@
+body {
+  font-family: sans-serif;
+  background: #1b3d2f;
+  color: white;
+}
+
 .app {
   text-align: center;
 }
@@ -5,107 +11,73 @@
 .board {
   display: grid;
   grid-template-columns: repeat(8, 50px);
+  grid-template-rows: repeat(8, 50px);
   gap: 2px;
-  justify-content: center;
   margin: 20px auto;
+  background: #0f2e22;
+  padding: 6px;
+  border-radius: 10px;
 }
 
+/* Board cell */
 .cell {
   width: 50px;
   height: 50px;
-  background: green;
+  background: #2e7d32;
   cursor: pointer;
   display: flex;
   align-items: center;
   justify-content: center;
-  position: relative; /* ← REQUIRED */
+  position: relative;
 }
 
+.cell.valid {
+  background: #388e3c;
+}
 
-
-.black,
-.white {
+/* Game piece base */
+.piece {
   width: 36px;
   height: 36px;
   border-radius: 50%;
   position: relative;
-  z-index: 2;
+
+  /* 3D illusion */
+  box-shadow:
+    inset 0 2px 4px rgba(255, 255, 255, 0.4),
+    inset 0 -3px 6px rgba(0, 0, 0, 0.6),
+    0 3px 6px rgba(0, 0, 0, 0.6);
 }
 
-.black {
+/* Black piece */
+.piece.black {
   background: radial-gradient(
     circle at 30% 30%,
-    #444,
-    #111 60%,
-    #000 100%
+    #555,
+    #000 70%
   );
-
-  box-shadow:
-    inset 0 2px 3px rgba(255, 255, 255, 0.15),
-    inset 0 -3px 4px rgba(0, 0, 0, 0.9),
-    0 3px 5px rgba(0, 0, 0, 0.6);
 }
 
-.white {
+/* White piece */
+.piece.white {
   background: radial-gradient(
     circle at 30% 30%,
-    #ffffff,
-    #dddddd 60%,
-    #bbbbbb 100%
+    #fff,
+    #ccc 70%
   );
-
-  box-shadow:
-    inset 0 2px 4px rgba(255, 255, 255, 0.9),
-    inset 0 -3px 4px rgba(0, 0, 0, 0.25),
-    0 3px 5px rgba(0, 0, 0, 0.4);
 }
 
-
-.cell.valid {
-  outline: 2px solid yellow;
-}
-
-.cell.valid:hover {
-  background: #0a7f0a;
-}
-
-
-.valid-dot {
-  width: 10px;
-  height: 10px;
-  background: rgba(255, 255, 255, 0.7);
-  border-radius: 50%;
-}
-
-.last-move-ring {
+/* Ring effect */
+.piece::after {
+  content: "";
   position: absolute;
-  width: 44px;
-  height: 44px;
+  inset: 4px;
   border-radius: 50%;
-  pointer-events: none;
-  z-index: 3;
+  border: 2px solid rgba(255, 255, 255, 0.35);
 }
 
-.ring-human {
-  border: 3px solid gold;
-}
-
-.ring-ai {
-  border: 3px solid #4da6ff;
-}
-
-/* GHOST DISCS (VALID MOVES) */
-.ghost {
-  width: 15px;
-  height: 15px;
-  border-radius: 50%;
-  opacity: 0.35;
-}
-
-.ghost-black {
-  background: black;
-}
-
-.ghost-white {
-  background: white;
+/* Last move emphasis */
+.piece.last-move {
+  outline: 2px solid gold;
+  outline-offset: 2px;
 }

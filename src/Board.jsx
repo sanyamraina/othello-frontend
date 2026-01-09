@@ -1,3 +1,5 @@
+import React from "react";
+
 export default function Board({
   board,
   validMoves,
@@ -5,47 +7,38 @@ export default function Board({
   currentPlayer,
   onCellClick,
 }) {
-  const isValid = (r, c) =>
-    validMoves.some(m => m.row === r && m.col === c);
-
-  const isLastMove = (r, c) =>
-    lastMove && lastMove.row === r && lastMove.col === c;
+  function isValidMove(r, c) {
+    return validMoves.some((m) => m.row === r && m.col === c);
+  }
 
   return (
     <div className="board">
       {board.map((row, r) =>
-        row.map((cell, c) => (
-          <div
-            key={`${r}-${c}`}
-            className="cell"
-            onClick={() =>
-              (validMoves.length === 0 || isValid(r, c)) &&
-              onCellClick(r, c)
-            }
-          >
-            {/* DISC */}
-            {cell === 1 && <div className="black" />}
-            {cell === -1 && <div className="white" />}
+        row.map((cell, c) => {
+          const valid = isValidMove(r, c);
+          const isLast =
+            lastMove && lastMove.row === r && lastMove.col === c;
 
-            {/* VALID MOVE GHOST DISC */}
-            {cell === 0 && isValid(r, c) && (
-              <div
-                className={`ghost ${
-                  currentPlayer === 1 ? "ghost-black" : "ghost-white"
-                }`}
-              />
-            )}
+          let pieceClass = "";
+          if (cell === 1) pieceClass = "piece black";
+          else if (cell === -1) pieceClass = "piece white";
 
-            {/* LAST MOVE RING */}
-            {isLastMove(r, c) && (
-              <div
-                className={`last-move-ring ${
-                  lastMove.by === "ai" ? "ring-ai" : "ring-human"
-                }`}
-              />
-            )}
-          </div>
-        ))
+          return (
+            <div
+              key={`${r}-${c}`}
+              className={`cell ${valid ? "valid" : ""}`}
+              onClick={() => onCellClick(r, c)}
+            >
+              {cell !== 0 && (
+                <div
+                  className={`${pieceClass} ${
+                    isLast ? "last-move" : ""
+                  }`}
+                />
+              )}
+            </div>
+          );
+        })
       )}
     </div>
   );
