@@ -25,6 +25,20 @@ function colorName(p) {
   return p === 1 ? "Black" : "White";
 }
 
+function countPieces(board) {
+  let black = 0;
+  let white = 0;
+
+  for (const row of board) {
+    for (const cell of row) {
+      if (cell === 1) black++;
+      if (cell === -1) white++;
+    }
+  }
+
+  return { black, white };
+}
+
 export default function App() {
   const [board, setBoard] = useState(initialBoard);
   const [player, setPlayer] = useState(1);
@@ -36,15 +50,18 @@ export default function App() {
   const [mode, setMode] = useState("HUMAN_VS_AI");
   const [aiColor, setAiColor] = useState(-1);
 
+  const [gameOver, setGameOver] = useState(false);
+  const [winner, setWinner] = useState(null);
+
+  // ---------- AI MOVE ----------
   useEffect(() => {
     if (mode !== "HUMAN_VS_AI") return;
     if (player !== aiColor) return;
-    if (loading) return;
+    if (loading || gameOver) return;
 
     (async () => {
       try {
         setLoading(true);
-        setError("");
         const res = await makeAIMove({ board, player });
 
         setBoard(res.board);
@@ -57,10 +74,36 @@ export default function App() {
         setLoading(false);
       }
     })();
-  }, [board, player, mode, aiColor, loading]);
+  }, [board, player, mode, aiColor, loading, gameOver]);
+
+  // ---------- GAME OVER CHECK ----------
+  useEffect(() => {
+    if (gameOver) return;
+    if (validMoves.length !== 0) return;
+
+    const opponent = -player;
+
+    (async () => {
+      try {
+        const res = await makeAIMove({ board, player: opponent });
+
+        if (!res.valid_moves || res.valid_moves.length === 0) {
+          const { black, white } = countPieces(board);
+
+          if (black > white) setWinner("Black");
+          else if (white > black) setWinner("White");
+          else setWinner("Draw");
+
+          setGameOver(true);
+        }
+      } catch {
+        // ignore
+      }
+    })();
+  }, [validMoves, board, player, gameOver]);
 
   async function handleCellClick(row, col) {
-    if (loading) return;
+    if (loading || gameOver) return;
     if (mode === "HUMAN_VS_AI" && player === aiColor) return;
 
     const isValid = validMoves.some((m) => m.row === row && m.col === col);
@@ -68,8 +111,6 @@ export default function App() {
 
     try {
       setLoading(true);
-      setError("");
-
       const res = await makeMove({ board, player, row, col });
 
       setBoard(res.board);
@@ -90,6 +131,8 @@ export default function App() {
     setLastMove(null);
     setLoading(false);
     setError("");
+    setGameOver(false);
+    setWinner(null);
   }
 
   return (
@@ -122,29 +165,34 @@ export default function App() {
 
       <p>
         Turn: <strong>{colorName(player)}</strong>
-        {mode === "HUMAN_VS_AI" && (
-          <>
-            &nbsp;|&nbsp;AI: <strong>{colorName(aiColor)}</strong>
-          </>
-        )}
       </p>
 
       {error && (
-        <div className="alert alert-danger py-2 px-3" style={{ maxWidth: 720 }}>
-          {error}
-        </div>
+        <div className="alert alert-danger py-2 px-3">{error}</div>
       )}
 
-      <div className="d-flex justify-content-center w-100">
-        <Board
-          board={board}
-          validMoves={validMoves}
-          lastMove={lastMove}
-          onCellClick={handleCellClick}
-        />
-      </div>
+      <Board
+        board={board}
+        validMoves={validMoves}
+        lastMove={lastMove}
+        onCellClick={handleCellClick}
+      />
 
       {loading && <p className="mt-2">Thinking…</p>}
+
+      {gameOver && (
+        <div className="game-over-overlay">
+          <div className="game-over-card">
+            <h2>Game Over</h2>
+            <p>
+              {winner === "Draw"
+                ? "It's a Draw!"
+                : `${winner} Wins`}
+            </p>
+            <button onClick={resetGame}>Play Again</button>
+          </div>
+        </div>
+      )}
     </div>
   );
 }

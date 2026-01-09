@@ -66,3 +66,31 @@ body {
 .piece.last-move {
   outline: 2px solid gold;
 }
+
+.game-over-overlay {
+  position: fixed;
+  inset: 0;
+  background: rgba(0, 0, 0, 0.7);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  z-index: 1000;
+}
+
+.game-over-card {
+  background: #102a23;
+  padding: 32px 40px;
+  border-radius: 14px;
+  text-align: center;
+  color: white;
+  box-shadow: 0 15px 45px rgba(0, 0, 0, 0.7);
+}
+
+.game-over-card h2 {
+  margin-bottom: 12px;
+}
+
+.game-over-card button {
+  margin-top: 18px;
+  padding: 8px 18px;
+}
