@@ -28,3 +28,12 @@
 
 .black { background: black; }
 .white { background: white; }
+
+
+.cell.valid {
+  outline: 2px solid yellow;
+}
+
+.cell.valid:hover {
+  background: #0a7f0a;
+}
