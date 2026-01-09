@@ -35,7 +35,6 @@ function countPieces(board) {
       if (cell === -1) white++;
     }
   }
-
   return { black, white };
 }
 
@@ -45,19 +44,21 @@ export default function App() {
   const [validMoves, setValidMoves] = useState(initialValidMoves);
   const [lastMove, setLastMove] = useState(null);
   const [loading, setLoading] = useState(false);
-  const [error, setError] = useState("");
 
   const [mode, setMode] = useState("HUMAN_VS_AI");
-  const [aiColor, setAiColor] = useState(-1);
+  const [humanColor, setHumanColor] = useState(1); // 1 = Black, -1 = White
 
-  const [gameOver, setGameOver] = useState(false);
-  const [winner, setWinner] = useState(null);
+  const [phase, setPhase] = useState("SETUP"); // SETUP | PLAYING | GAME_OVER
+  const [winner, setWinner] = useState(null); // 1 | -1 | "DRAW"
+
+  const aiColor = mode === "HUMAN_VS_AI" ? -humanColor : null;
 
   // ---------- AI MOVE ----------
   useEffect(() => {
+    if (phase !== "PLAYING") return;
     if (mode !== "HUMAN_VS_AI") return;
     if (player !== aiColor) return;
-    if (loading || gameOver) return;
+    if (loading) return;
 
     (async () => {
       try {
@@ -68,17 +69,15 @@ export default function App() {
         setPlayer(res.next_player);
         setValidMoves(res.valid_moves || []);
         setLastMove(res.move || null);
-      } catch (e) {
-        setError(e.message || "AI move failed");
       } finally {
         setLoading(false);
       }
     })();
-  }, [board, player, mode, aiColor, loading, gameOver]);
+  }, [board, player, phase, mode, aiColor, loading]);
 
   // ---------- GAME OVER CHECK ----------
   useEffect(() => {
-    if (gameOver) return;
+    if (phase !== "PLAYING") return;
     if (validMoves.length !== 0) return;
 
     const opponent = -player;
@@ -90,20 +89,18 @@ export default function App() {
         if (!res.valid_moves || res.valid_moves.length === 0) {
           const { black, white } = countPieces(board);
 
-          if (black > white) setWinner("Black");
-          else if (white > black) setWinner("White");
-          else setWinner("Draw");
+          if (black > white) setWinner(1);
+          else if (white > black) setWinner(-1);
+          else setWinner("DRAW");
 
-          setGameOver(true);
+          setPhase("GAME_OVER");
         }
-      } catch {
-        // ignore
-      }
+      } catch {}
     })();
-  }, [validMoves, board, player, gameOver]);
+  }, [validMoves, board, player, phase]);
 
   async function handleCellClick(row, col) {
-    if (loading || gameOver) return;
+    if (phase !== "PLAYING" || loading) return;
     if (mode === "HUMAN_VS_AI" && player === aiColor) return;
 
     const isValid = validMoves.some((m) => m.row === row && m.col === col);
@@ -117,79 +114,113 @@ export default function App() {
       setPlayer(res.next_player);
       setValidMoves(res.valid_moves || []);
       setLastMove({ row, col });
-    } catch (e) {
-      setError(e.message || "Move failed");
     } finally {
       setLoading(false);
     }
   }
 
-  function resetGame() {
+  function startGame() {
     setBoard(initialBoard);
     setPlayer(1);
     setValidMoves(initialValidMoves);
     setLastMove(null);
-    setLoading(false);
-    setError("");
-    setGameOver(false);
     setWinner(null);
+    setPhase("PLAYING");
+  }
+
+  function resetGame() {
+    setPhase("SETUP");
+  }
+
+  // ---------- GAME OVER MESSAGE ----------
+  function gameOverMessage() {
+    if (winner === "DRAW") return "🤝 It’s a Draw";
+
+    if (mode === "HUMAN_VS_AI") {
+      return winner === humanColor
+        ? "🎉 You Won!"
+        : "🤖 AI Won — You Lost";
+    }
+
+    return `${colorName(winner)} Wins`;
   }
 
   return (
     <div className="container-fluid min-vh-100 d-flex flex-column align-items-center">
       <h1 className="mt-4">Othello</h1>
 
-      <div className="d-flex flex-wrap gap-3 my-3 align-items-center">
-        <label>
-          Mode:&nbsp;
-          <select value={mode} onChange={(e) => setMode(e.target.value)}>
-            <option value="HUMAN_VS_AI">Human vs AI</option>
-            <option value="HUMAN_VS_HUMAN">Human vs Human</option>
-          </select>
-        </label>
+      {/* ---------- STATUS BAR ---------- */}
+      {phase !== "SETUP" && (
+        <div className="status-bar">
+          <span>
+            Mode:{" "}
+            <strong>
+              {mode === "HUMAN_VS_AI" ? "Human vs AI" : "Human vs Human"}
+            </strong>
+          </span>
 
-        <label>
-          AI Color:&nbsp;
-          <select
-            value={aiColor}
-            onChange={(e) => setAiColor(Number(e.target.value))}
-            disabled={mode !== "HUMAN_VS_AI"}
-          >
-            <option value={1}>Black</option>
-            <option value={-1}>White</option>
-          </select>
-        </label>
+          {mode === "HUMAN_VS_AI" && (
+            <span>
+              You: <strong>{colorName(humanColor)}</strong>
+            </span>
+          )}
 
-        <button onClick={resetGame}>Reset</button>
-      </div>
+          <span>
+            Turn: <strong>{colorName(player)}</strong>
+          </span>
 
-      <p>
-        Turn: <strong>{colorName(player)}</strong>
-      </p>
-
-      {error && (
-        <div className="alert alert-danger py-2 px-3">{error}</div>
+          <button onClick={resetGame}>Reset</button>
+        </div>
       )}
 
       <Board
         board={board}
-        validMoves={validMoves}
+        validMoves={phase === "PLAYING" ? validMoves : []}
         lastMove={lastMove}
         onCellClick={handleCellClick}
       />
 
-      {loading && <p className="mt-2">Thinking…</p>}
+      {loading && phase === "PLAYING" && <p>Thinking…</p>}
 
-      {gameOver && (
-        <div className="game-over-overlay">
-          <div className="game-over-card">
+      {/* ---------- SETUP OVERLAY ---------- */}
+      {phase === "SETUP" && (
+        <div className="overlay">
+          <div className="overlay-card">
+            <h2>Game Setup</h2>
+
+            <label>
+              Mode:
+              <select value={mode} onChange={(e) => setMode(e.target.value)}>
+                <option value="HUMAN_VS_AI">Human vs AI</option>
+                <option value="HUMAN_VS_HUMAN">Human vs Human</option>
+              </select>
+            </label>
+
+            {mode === "HUMAN_VS_AI" && (
+              <label>
+                Your Color:
+                <select
+                  value={humanColor}
+                  onChange={(e) => setHumanColor(Number(e.target.value))}
+                >
+                  <option value={1}>Black</option>
+                  <option value={-1}>White</option>
+                </select>
+              </label>
+            )}
+
+            <button onClick={startGame}>Start Game</button>
+          </div>
+        </div>
+      )}
+
+      {/* ---------- GAME OVER OVERLAY ---------- */}
+      {phase === "GAME_OVER" && (
+        <div className="overlay">
+          <div className="overlay-card game-over">
             <h2>Game Over</h2>
-            <p>
-              {winner === "Draw"
-                ? "It's a Draw!"
-                : `${winner} Wins`}
-            </p>
-            <button onClick={resetGame}>Play Again</button>
+            <p className="game-over-message">{gameOverMessage()}</p>
+            <button onClick={resetGame}>New Game</button>
           </div>
         </div>
       )}

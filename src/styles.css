@@ -94,3 +94,84 @@ body {
   margin-top: 18px;
   padding: 8px 18px;
 }
+
+
+.overlay {
+  position: fixed;
+  inset: 0;
+  background: rgba(0, 0, 0, 0.75);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  z-index: 1000;
+}
+
+.overlay-card {
+  background: #102a23;
+  padding: 32px 40px;
+  border-radius: 14px;
+  text-align: center;
+  color: white;
+  min-width: 260px;
+}
+
+.overlay-card h2 {
+  margin-bottom: 16px;
+}
+
+.overlay-card label {
+  display: flex;
+  flex-direction: column;
+  margin-bottom: 12px;
+}
+
+.overlay-card select {
+  margin-top: 4px;
+}
+
+.overlay-card button {
+  margin-top: 16px;
+  padding: 8px 18px;
+}
+
+
+.status-bar {
+  margin: 12px 0;
+  display: flex;
+  gap: 18px;
+  align-items: center;
+}
+
+.overlay {
+  position: fixed;
+  inset: 0;
+  background: rgba(0, 0, 0, 0.75);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  z-index: 1000;
+}
+
+.overlay-card {
+  background: #102a23;
+  padding: 32px 40px;
+  border-radius: 14px;
+  text-align: center;
+  color: white;
+}
+
+.overlay-card label {
+  display: flex;
+  flex-direction: column;
+  margin-bottom: 12px;
+}
+
+.overlay-card button {
+  margin-top: 16px;
+}
+
+.game-over-message {
+  font-size: 1.3rem;
+  margin: 12px 0 18px;
+  font-weight: 600;
+}
