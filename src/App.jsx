@@ -46,12 +46,14 @@ export default function App() {
   const [loading, setLoading] = useState(false);
 
   const [mode, setMode] = useState("HUMAN_VS_AI");
-  const [humanColor, setHumanColor] = useState(1); // 1 = Black, -1 = White
+  const [humanColor, setHumanColor] = useState(1);
 
   const [phase, setPhase] = useState("SETUP"); // SETUP | PLAYING | GAME_OVER
-  const [winner, setWinner] = useState(null); // 1 | -1 | "DRAW"
+  const [winner, setWinner] = useState(null);
+  const [finalScore, setFinalScore] = useState(null);
 
   const aiColor = mode === "HUMAN_VS_AI" ? -humanColor : null;
+  const liveScore = countPieces(board);
 
   // ---------- AI MOVE ----------
   useEffect(() => {
@@ -87,10 +89,11 @@ export default function App() {
         const res = await makeAIMove({ board, player: opponent });
 
         if (!res.valid_moves || res.valid_moves.length === 0) {
-          const { black, white } = countPieces(board);
+          const score = countPieces(board);
+          setFinalScore(score);
 
-          if (black > white) setWinner(1);
-          else if (white > black) setWinner(-1);
+          if (score.black > score.white) setWinner(1);
+          else if (score.white > score.black) setWinner(-1);
           else setWinner("DRAW");
 
           setPhase("GAME_OVER");
@@ -125,6 +128,7 @@ export default function App() {
     setValidMoves(initialValidMoves);
     setLastMove(null);
     setWinner(null);
+    setFinalScore(null);
     setPhase("PLAYING");
   }
 
@@ -132,7 +136,6 @@ export default function App() {
     setPhase("SETUP");
   }
 
-  // ---------- GAME OVER MESSAGE ----------
   function gameOverMessage() {
     if (winner === "DRAW") return "🤝 It’s a Draw";
 
@@ -143,6 +146,13 @@ export default function App() {
     }
 
     return `${colorName(winner)} Wins`;
+  }
+
+  function scoreLabel(color) {
+    if (mode === "HUMAN_VS_AI") {
+      return color === humanColor ? "You" : "AI";
+    }
+    return colorName(color);
   }
 
   return (
@@ -159,11 +169,10 @@ export default function App() {
             </strong>
           </span>
 
-          {mode === "HUMAN_VS_AI" && (
-            <span>
-              You: <strong>{colorName(humanColor)}</strong>
-            </span>
-          )}
+          <span className="live-score">
+            <strong>{scoreLabel(1)}</strong>: {liveScore.black} &nbsp;|&nbsp;
+            <strong>{scoreLabel(-1)}</strong>: {liveScore.white}
+          </span>
 
           <span>
             Turn: <strong>{colorName(player)}</strong>
@@ -215,11 +224,23 @@ export default function App() {
       )}
 
       {/* ---------- GAME OVER OVERLAY ---------- */}
-      {phase === "GAME_OVER" && (
+      {phase === "GAME_OVER" && finalScore && (
         <div className="overlay">
           <div className="overlay-card game-over">
             <h2>Game Over</h2>
             <p className="game-over-message">{gameOverMessage()}</p>
+
+            <div className="score-breakdown">
+              <div>
+                <strong>{scoreLabel(1)}</strong>
+                <span>{finalScore.black}</span>
+              </div>
+              <div>
+                <strong>{scoreLabel(-1)}</strong>
+                <span>{finalScore.white}</span>
+              </div>
+            </div>
+
             <button onClick={resetGame}>New Game</button>
           </div>
         </div>

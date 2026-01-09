@@ -175,3 +175,45 @@ body {
   margin: 12px 0 18px;
   font-weight: 600;
 }
+
+.game-over-message {
+  font-size: 1.3rem;
+  margin: 12px 0;
+  font-weight: 600;
+}
+
+.score-breakdown {
+  display: flex;
+  justify-content: space-around;
+  margin: 14px 0 20px;
+  font-size: 1.1rem;
+}
+
+.score-breakdown div {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+}
+
+.score-breakdown span {
+  font-size: 1.4rem;
+  font-weight: bold;
+  margin-top: 4px;
+}
+
+
+.live-score {
+  font-weight: 500;
+}
+
+.score-breakdown {
+  display: flex;
+  justify-content: space-around;
+  margin: 14px 0 20px;
+  font-size: 1.1rem;
+}
+
+.score-breakdown span {
+  font-size: 1.4rem;
+  font-weight: bold;
+}
