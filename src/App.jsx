@@ -187,6 +187,7 @@ export default function App() {
         validMoves={phase === "PLAYING" ? validMoves : []}
         lastMove={lastMove}
         onCellClick={handleCellClick}
+        currentPlayer={player}
       />
 
       {loading && phase === "PLAYING" && <p>Thinking…</p>}
