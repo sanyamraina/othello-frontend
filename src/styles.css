@@ -229,3 +229,52 @@ body {
   background: rgba(255, 255, 255, 0.228);
 }
 
+
+/* ---------- AVAILABLE MOVE DOT ---------- */
+
+.move-dot {
+  position: absolute;
+  width: 12px;
+  height: 12px;
+  border-radius: 50%;
+  background: rgba(255, 255, 255, 0.35);
+  pointer-events: none;
+  transition: opacity 0.12s ease;
+}
+
+/* Hide dot on hover (Chess.com behavior) */
+.cell:hover .move-dot {
+  opacity: 0;
+}
+
+/* ---------- HOVER PREVIEW DISC ---------- */
+
+.preview-piece {
+  position: absolute;
+  width: 34px;
+  height: 34px;
+  border-radius: 50%;
+  pointer-events: none;
+  opacity: 0;
+  transform: scale(0.85);
+  transition:
+    opacity 0.12s ease,
+    transform 0.12s ease;
+}
+
+/* Black preview (default current player = black) */
+.cell:hover .preview-piece {
+  opacity: 0.45;
+  transform: scale(1);
+}
+
+/* Match board disc styles */
+.preview-piece {
+  background: radial-gradient(circle at 30% 30%, #555, #000 70%);
+}
+
+/* If you later add white-turn preview, this class is ready */
+.preview-piece.white {
+  background: radial-gradient(circle at 30% 30%, #fff, #ccc 70%);
+}
+
