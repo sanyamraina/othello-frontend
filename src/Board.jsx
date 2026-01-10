@@ -23,11 +23,17 @@ export default function Board({
           return (
             <div
               key={`${r}-${c}`}
-              className={`cell ${isValid(r, c) ? "valid" : ""}`}
+              className="cell"
               onClick={() => onCellClick(r, c)}
             >
+              {/* Piece */}
               {cell !== 0 && (
                 <div className={`${piece} ${last ? "last-move" : ""}`} />
+              )}
+
+              {/* Available move dot (Chess.com style) */}
+              {cell === 0 && isValid(r, c) && (
+                <div className="move-dot" />
               )}
             </div>
           );
