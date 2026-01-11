@@ -45,6 +45,7 @@ export default function App() {
   const [lastMove, setLastMove] = useState(null);
   const [history, setHistory] = useState([]); // stack of previous states for undo
   const [loading, setLoading] = useState(false);
+  const [flippedTiles, setFlippedTiles] = useState([]);
 
   const [mode, setMode] = useState("HUMAN_VS_AI");
   const [humanColor, setHumanColor] = useState(1);
@@ -109,38 +110,13 @@ export default function App() {
           setPlayer(res.next_player);
           setValidMoves(normalizeMoves(res.valid_moves));
           setLastMove(res.move || null);
+          setFlippedTiles(res.flipped || []);
         }
       } finally {
         setLoading(false);
       }
     })();
   }, [board, player, phase, mode, aiColor, loading]);
-
-  // ---------- GAME OVER CHECK ----------
-  // useEffect(() => {
-  //   if (phase !== "PLAYING") return;
-  //   if (validMoves.length !== 0) return;
-
-  //   const opponent = -player;
-
-  //   (async () => {
-  //     try {
-  //       const res = await makeAIMove({ board, player: opponent });
-
-  //       if (!res.valid_moves || res.valid_moves.length === 0) {
-  //         const score = countPieces(board);
-  //         setFinalScore(score);
-
-  //         if (score.black > score.white) setWinner(1);
-  //         else if (score.white > score.black) setWinner(-1);
-  //         else setWinner("DRAW");
-
-  //         setPhase("GAME_OVER");
-  //       }
-  //     } catch {}
-  //   })();
-  // }, [validMoves, board, player, phase]);
-
 
   // ---------- NEW GAME OVER CHECK ----------
 
@@ -177,6 +153,7 @@ export default function App() {
         setPlayer(nextPlayer);
         setValidMoves(normalizeMoves(res.valid_moves));
         setLastMove(null);
+        setFlippedTiles([]);
       } catch (e) {
         console.error(e);
       }
@@ -244,6 +221,7 @@ export default function App() {
         setPlayer(res.next_player);
         setValidMoves(normalizeMoves(res.valid_moves));
         setLastMove({ row, col });
+        setFlippedTiles(res.flipped || []);
       }
     } finally {
       setLoading(false);
@@ -312,12 +290,23 @@ export default function App() {
     setPlayer(1);
     setValidMoves(initialValidMoves);
     setLastMove(null);
+    setFlippedTiles([]);
     setWinner(null);
     setFinalScore(null);
+    // clear undo history when starting a fresh game
+    setHistory([]);
+    // cancel any pending AI requests
+    if (aiRequestIdRef.current) aiRequestIdRef.current = 0;
     setPhase("PLAYING");
   }
 
   function resetGame() {
+    // clear history and reset state when user goes to setup/new game
+    setHistory([]);
+    setLastMove(null);
+    setFlippedTiles([]);
+
+    if (aiRequestIdRef.current) aiRequestIdRef.current = 0;
     setPhase("SETUP");
   }
 
@@ -385,6 +374,7 @@ export default function App() {
         board={board}
         validMoves={phase === "PLAYING" ? validMoves : []}
         lastMove={lastMove}
+        flippedTiles={flippedTiles}
         onCellClick={handleCellClick}
         currentPlayer={player}
       />

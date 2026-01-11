@@ -4,11 +4,16 @@ export default function Board({
   board,
   validMoves,
   lastMove,
+  flippedTiles,
   onCellClick,
   currentPlayer,
 }) {
   const isValid = (r, c) =>
     validMoves.some((m) => m.row === r && m.col === c);
+
+  const isFlipped = (r, c) =>
+    flippedTiles?.some((t) => t.row === r && t.col === c);
+
   const files = ["a", "b", "c", "d", "e", "f", "g", "h"];
 
   return (
@@ -23,29 +28,35 @@ export default function Board({
         </div>
       ))}
 
-      {/* rows with row label + cells */}
+      {/* rows */}
       {board.map((row, r) => (
         <React.Fragment key={`row-${r}`}>
           <div className="row-label">{r + 1}</div>
-          {row.map((cell, c) => {
-            const last = lastMove && lastMove.row === r && lastMove.col === c;
 
-            let piece = "";
-            if (cell === 1) piece = "piece black";
-            if (cell === -1) piece = "piece white";
+          {row.map((cell, c) => {
+            const isLastMove =
+              lastMove && lastMove.row === r && lastMove.col === c;
+
+            const flipped = isFlipped(r, c);
+
+            let pieceClass = "";
+            if (cell === 1) pieceClass = "piece black";
+            if (cell === -1) pieceClass = "piece white";
 
             const previewClass =
-              currentPlayer === 1 ? "preview-piece black" : "preview-piece white";
+              currentPlayer === 1
+                ? "preview-piece black"
+                : "preview-piece white";
 
             return (
               <div
                 key={`${r}-${c}`}
-                className="cell"
+                className={`cell ${
+                  isLastMove || flipped ? "last-move-cell" : ""
+                }`}
                 onClick={() => onCellClick(r, c)}
               >
-                {cell !== 0 && (
-                  <div className={`${piece} ${last ? "last-move" : ""}`} />
-                )}
+                {cell !== 0 && <div className={pieceClass} />}
 
                 {cell === 0 && isValid(r, c) && (
                   <>

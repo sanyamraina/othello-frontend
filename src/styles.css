@@ -114,9 +114,10 @@ body {
 
 
 
-.piece.last-move {
-  outline: 2px solid gold;
+.cell.last-move-cell {
+background: #66bb6a;
 }
+
 
 .game-over-overlay {
   position: fixed;
