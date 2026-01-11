@@ -79,6 +79,7 @@ export default function App() {
             player,
             validMoves,
             lastMove,
+            flippedTiles,
             phase,
             winner,
             finalScore,
@@ -195,6 +196,7 @@ export default function App() {
           player,
           validMoves,
           lastMove,
+          flippedTiles,
           phase,
           winner,
           finalScore,
@@ -241,6 +243,7 @@ export default function App() {
       setPlayer(prev.player);
       setValidMoves(prev.validMoves || []);
       setLastMove(prev.lastMove || null);
+      setFlippedTiles(prev.flippedTiles || []); 
       setPhase(prev.phase || "PLAYING");
       setWinner(prev.winner || null);
       setFinalScore(prev.finalScore || null);
@@ -258,6 +261,7 @@ export default function App() {
         setPlayer(restored.player);
         setValidMoves(restored.validMoves || []);
         setLastMove(restored.lastMove || null);
+        setFlippedTiles(restored.flippedTiles || []);
         setPhase(restored.phase || "PLAYING");
         setWinner(restored.winner || null);
         setFinalScore(restored.finalScore || null);
@@ -273,6 +277,7 @@ export default function App() {
     setPlayer(prev.player);
     setValidMoves(prev.validMoves || []);
     setLastMove(prev.lastMove || null);
+    setFlippedTiles(prev.flippedTiles || []); 
     setPhase(prev.phase || "PLAYING");
     setWinner(prev.winner || null);
     setFinalScore(prev.finalScore || null);
