@@ -1,6 +1,6 @@
 import { useEffect, useState, useRef } from "react";
 import Board from "./Board";
-import { makeMove, makeAIMove } from "./api";
+import { makeMove, makeAIMove, fetchValidMoves } from "./api";
 import "./styles.css";
 
 const initialBoard = [
@@ -64,6 +64,7 @@ export default function App() {
   const [phase, setPhase] = useState("SETUP"); // SETUP | PLAYING | GAME_OVER
   const [winner, setWinner] = useState(null);
   const [finalScore, setFinalScore] = useState(null);
+  const [hoveredNodeId, setHoveredNodeId] = useState(null);
 
   // Move tree state
   const moveTreeRef = useRef(new Map());
@@ -91,6 +92,7 @@ export default function App() {
       row: null,
       col: null,
       boardAfter: (boardForRoot || initialBoard).map((r) => r.slice()),
+      flipped: [],
       nextPlayer: 1,
       validMovesNext: initialValidMoves.map((m) => ({ ...m })),
       parentId: null,
@@ -142,6 +144,7 @@ export default function App() {
             row: isAIMove ? res.move.row : null,
             col: isAIMove ? res.move.col : null,
             boardAfter: res.board.map((r) => r.slice()),
+            flipped: res.flipped || [],
             nextPlayer: res.game_over ? null : res.next_player,
             validMovesNext: res.game_over ? [] : normalizeMoves(res.valid_moves),
             parentId: parentNodeForAI.id,
@@ -219,7 +222,8 @@ export default function App() {
 
   useEffect(() => {
     if (phase !== "PLAYING") return;
-
+    if (loading) return;
+    if (mode === "HUMAN_VS_AI" && player === aiColor) return;
     if (validMoves.length > 0) return;
 
     (async () => {
@@ -227,11 +231,7 @@ export default function App() {
         // Current player must PASS
         const nextPlayer = -player;
 
-        const res = await fetch("http://127.0.0.1:8000/valid-moves", {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ board, player: nextPlayer }),
-        }).then(r => r.json());
+        const res = await fetchValidMoves({ board, player: nextPlayer });
 
         // BOTH players have no moves → GAME OVER
         if (!res.valid_moves || res.valid_moves.length === 0) {
@@ -262,6 +262,7 @@ export default function App() {
             row: null,
             col: null,
             boardAfter: board.map((r) => r.slice()),
+            flipped: [],
             nextPlayer,
             validMovesNext: normalizeMoves(res.valid_moves),
             parentId: parentNodeForPass.id,
@@ -328,6 +329,20 @@ export default function App() {
     const isValid = validMoves.some((m) => m.row === row && m.col === col);
     if (!isValid) return;
 
+    // If this move already exists in the current branch, just jump to it.
+    if (moveTreeRef.current && currentNodeId && moveTreeRef.current.has(currentNodeId)) {
+      const parentNode = moveTreeRef.current.get(currentNodeId);
+      const children = Array.isArray(parentNode?.children) ? parentNode.children : [];
+      const existingChildId = children.find((childId) => {
+        const node = moveTreeRef.current.get(childId);
+        return node && node.player === player && node.row === row && node.col === col;
+      });
+      if (existingChildId) {
+        jumpToNodeId(existingChildId);
+        return;
+      }
+    }
+
     try {
       setLoading(true);
 
@@ -355,6 +370,7 @@ export default function App() {
           row,
           col,
           boardAfter: res.board.map((r) => r.slice()),
+          flipped: res.flipped || [],
           nextPlayer: res.game_over ? null : res.next_player,
           validMovesNext: res.game_over ? [] : normalizeMoves(res.valid_moves),
           parentId: parentNodeForHuman.id,
@@ -446,7 +462,7 @@ export default function App() {
         ? { row: targetNode.row, col: targetNode.col }
         : null
     );
-    setFlippedTiles([]);
+    setFlippedTiles(Array.isArray(targetNode.flipped) ? targetNode.flipped : []);
 
     // If undoing from game over, resume play
     if (phase === "GAME_OVER") {
@@ -458,11 +474,7 @@ export default function App() {
     // Refresh valid moves for the restored state
     (async () => {
       try {
-        const res = await fetch("http://127.0.0.1:8000/valid-moves", {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ board: restoredBoard, player: restoredPlayer }),
-        }).then((r) => r.json());
+        const res = await fetchValidMoves({ board: restoredBoard, player: restoredPlayer });
         setValidMoves(normalizeMoves(res.valid_moves));
       } catch (e) {
         setValidMoves([]);
@@ -497,6 +509,7 @@ export default function App() {
       row: null,
       col: null,
       boardAfter: initialBoard.map(r => r.slice()),
+      flipped: [],
       nextPlayer: 1,
       validMovesNext: initialValidMoves.map((m) => ({ ...m })),
       parentId: null,
@@ -548,10 +561,8 @@ export default function App() {
 
   function nodeMetaLabel(node) {
     if (!node) return "";
-    const who = node.player === 1 || node.player === -1 ? colorName(node.player) : "";
-    if (mode !== "HUMAN_VS_AI") return who;
-    const actor = node.player === aiColor ? "AI" : "You";
-    return `${who} · ${actor}`;
+    if (mode !== "HUMAN_VS_AI") return "";
+    return node.player === aiColor ? "AI" : "You";
   }
 
   function computeWinnerFromScore(score) {
@@ -565,23 +576,51 @@ export default function App() {
     if (!moveTreeRef.current || !(moveTreeRef.current instanceof Map)) return [];
     if (!moveTreeRef.current.has("root")) return [];
 
-    /** @type {string[][]} */
-    const rows = [];
     const map = moveTreeRef.current;
+    /** @type {Array<Array<string|null>>} */
+    const lines = [];
 
-    function dfs(parentId, depth) {
-      const parent = map.get(parentId);
-      if (!parent) return;
+    function ensureLine(index) {
+      if (!lines[index]) lines[index] = [];
+    }
 
-      const children = Array.isArray(parent.children) ? parent.children : [];
-      for (const childId of children) {
-        if (!rows[depth]) rows[depth] = [];
-        rows[depth].push(childId);
-        dfs(childId, depth + 1);
+    function clonePrefix(lineIndex, depth) {
+      const prefix = (lines[lineIndex] || []).slice(0, depth);
+      return prefix;
+    }
+
+    function walk(nodeId, depth, lineIndex) {
+      const node = map.get(nodeId);
+      if (!node) return;
+
+      if (nodeId !== "root") {
+        ensureLine(lineIndex);
+        lines[lineIndex][depth] = nodeId;
+      }
+
+      const children = Array.isArray(node.children) ? node.children : [];
+      if (children.length === 0) return;
+
+      const [firstChild, ...restChildren] = children;
+      walk(firstChild, depth + 1, lineIndex);
+
+      for (const childId of restChildren) {
+        const newLineIndex = lines.length;
+        lines[newLineIndex] = clonePrefix(lineIndex, depth + 1);
+        walk(childId, depth + 1, newLineIndex);
       }
     }
 
-    dfs("root", 0);
+    walk("root", -1, 0);
+
+    const maxDepth = lines.reduce((max, line) => Math.max(max, line.length), 0);
+    /** @type {Array<Array<string|null>>} */
+    const rows = [];
+
+    for (let depth = 0; depth < maxDepth; depth += 1) {
+      rows[depth] = lines.map((line) => line[depth] ?? null);
+    }
+
     return rows;
   }
 
@@ -607,7 +646,7 @@ export default function App() {
     setLastMove(
       node.row !== null && node.col !== null ? { row: node.row, col: node.col } : null
     );
-    setFlippedTiles([]);
+    setFlippedTiles(Array.isArray(node.flipped) ? node.flipped : []);
 
     // Prefer the stored valid moves for this node/branch.
     // Fallback to backend only if missing.
@@ -616,11 +655,7 @@ export default function App() {
     } else {
       (async () => {
         try {
-          const res = await fetch("http://127.0.0.1:8000/valid-moves", {
-            method: "POST",
-            headers: { "Content-Type": "application/json" },
-            body: JSON.stringify({ board: jumpedBoard, player: jumpedPlayer }),
-          }).then((r) => r.json());
+          const res = await fetchValidMoves({ board: jumpedBoard, player: jumpedPlayer });
           setValidMoves(normalizeMoves(res.valid_moves));
         } catch (e) {
           setValidMoves([]);
@@ -719,24 +754,48 @@ export default function App() {
                 {Array.from({ length: maxPly }, (_, plyIndex) => (
                   <div key={plyIndex} className="moves-variations-row" role="row">
                     <div className="moves-variations-index" role="cell">
-                      Move {plyIndex + 1}
+                      {plyIndex + 1}
                     </div>
 
                     <div className="moves-variations-cells" role="cell">
                       {(rows[plyIndex] || []).map((nodeId, optionIndex) => {
-                        if (!nodeId || !moveTreeRef.current.has(nodeId)) return null;
+                        if (!nodeId) {
+                          return (
+                            <div
+                              key={`${plyIndex}-${optionIndex}-empty`}
+                              className="moves-variations-cell empty"
+                              aria-hidden="true"
+                            />
+                          );
+                        }
+
+                        if (!moveTreeRef.current.has(nodeId)) return null;
 
                         const node = moveTreeRef.current.get(nodeId);
                         const label = moveLabelFromNode(node);
                         const meta = nodeMetaLabel(node);
                         const isActive = nodeId === currentNodeId;
+                        const isHovered = nodeId === hoveredNodeId;
+                        const rowNodeIds = rows[plyIndex] || [];
+                        const labelCounts = new Map();
+                        for (const id of rowNodeIds) {
+                          if (!id || !moveTreeRef.current.has(id)) continue;
+                          const rowNode = moveTreeRef.current.get(id);
+                          const rowLabel = moveLabelFromNode(rowNode);
+                          labelCounts.set(rowLabel, (labelCounts.get(rowLabel) || 0) + 1);
+                        }
+                        const isDuplicateLabel = (labelCounts.get(label) || 0) > 1;
 
                         return (
                           <button
                             key={`${plyIndex}-${optionIndex}-${nodeId}`}
                             type="button"
-                            className={`moves-variations-cell ${isActive ? 'active' : ''}`}
+                            className={`moves-variations-cell${isActive ? ' is-active' : ''}${isHovered ? ' is-hovered' : ''}${isDuplicateLabel ? ' is-duplicate-label' : ''}`}
                             onClick={() => jumpToNodeId(nodeId)}
+                            onMouseEnter={() => setHoveredNodeId(nodeId)}
+                            onMouseLeave={() => setHoveredNodeId(null)}
+                            onFocus={() => setHoveredNodeId(nodeId)}
+                            onBlur={() => setHoveredNodeId(null)}
                             title={meta ? `${label} (${meta})` : label}
                           >
                             <span className={node.player === 1 ? 'pill black-pill' : 'pill white-pill'} />

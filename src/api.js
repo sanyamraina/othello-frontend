@@ -29,3 +29,7 @@ export function makeMove(payload) {
 export function makeAIMove(payload) {
   return postJson(`${API_URL}/ai-move`, payload);
 }
+
+export function fetchValidMoves(payload) {
+  return postJson(`${API_URL}/valid-moves`, payload);
+}
