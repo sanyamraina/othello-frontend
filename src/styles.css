@@ -167,6 +167,30 @@ background: #66bb6a;
   min-width: 260px;
 }
 
+/* Smooth transitions for setup card and conditional blocks */
+.overlay-card {
+  transition: transform 520ms cubic-bezier(.16,.84,.24,1), padding 420ms ease, width 420ms ease, opacity 420ms ease;
+  will-change: transform, opacity;
+}
+
+/* Animate visibility via transform + opacity to avoid layout jitter */
+.color-block {
+  overflow: visible;
+  display: block;
+  transform-origin: top center;
+  transform: scaleY(0.96) translateY(-4px);
+  opacity: 0;
+  transition: transform 480ms cubic-bezier(.16,.84,.24,1), opacity 360ms ease;
+  will-change: transform, opacity;
+}
+.color-block.visible {
+  transform: scaleY(1) translateY(0);
+  opacity: 1;
+}
+.color-block.collapsed { pointer-events: none; }
+
+.color-choices { display:flex; gap:8px; justify-content:center; margin-top:8px; }
+
 .overlay-card h2 {
   margin-bottom: 16px;
 }
@@ -198,6 +222,192 @@ background: #66bb6a;
   padding: 10px 14px;
   border-radius: 14px;
   box-shadow: 0 8px 22px rgba(0,0,0,0.45), inset 0 1px 0 rgba(255,255,255,0.02);
+}
+
+/* ---------- MOVE HISTORY PANEL ---------- */
+
+/* game area: board + move history side-by-side */
+.game-area {
+  display: flex;
+  gap: 16px;
+  align-items: flex-start;
+  width: min(860px, 94%);
+  margin-top: 14px;
+}
+
+.board-panel {
+  flex: 0 0 auto;
+}
+
+.move-history {
+  width: 300px;
+  background: linear-gradient(180deg, rgba(255,255,255,0.02), rgba(255,255,255,0.01));
+  padding: 12px 14px;
+  border-radius: 12px;
+  box-shadow: 0 10px 30px rgba(0,0,0,0.45), inset 0 1px 0 rgba(255,255,255,0.02);
+  display: flex;
+  flex-direction: column;
+  transition: width 360ms cubic-bezier(.2,.9,.2,1), opacity 260ms ease, padding 260ms ease;
+  overflow: hidden;
+  /* match the board height exactly (labels + rows + gaps + padding) */
+  height: calc(36px + (50px * 8) + (6px * 8) + 12px);
+}
+
+.move-history-header h3 {
+  margin: 0 0 8px 0;
+  font-size: 1rem;
+  color: rgba(235,247,240,0.95);
+}
+
+.moves-list {
+  list-style: none;
+  margin: 0;
+  padding: 6px 4px;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  /* fill remaining space in the move-history box and scroll if needed */
+  flex: 1 1 auto;
+  overflow-y: auto;
+}
+
+/* ---------- MOVE VARIATIONS GRID ---------- */
+
+.moves-variations {
+  flex: 1 1 auto;
+  overflow-y: auto;
+  padding: 6px 2px;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.moves-variations-row {
+  display: flex;
+  align-items: flex-start;
+  gap: 10px;
+}
+
+.moves-variations-index {
+  min-width: 64px;
+  color: rgba(235,247,240,0.70);
+  font-weight: 700;
+  font-size: 12px;
+  line-height: 24px;
+  user-select: none;
+}
+
+.moves-variations-cells {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  align-items: center;
+}
+
+.moves-variations-cell {
+  display: inline-grid;
+  grid-template-columns: 14px auto;
+  grid-template-rows: auto auto;
+  column-gap: 8px;
+  row-gap: 2px;
+  align-items: center;
+  padding: 6px 10px;
+  border-radius: 8px;
+  border: 1px solid rgba(255,255,255,0.04);
+  background: rgba(255,255,255,0.02);
+  color: rgba(235,247,240,0.95);
+  cursor: pointer;
+  font-weight: 600;
+}
+
+.moves-variations-cell .pill { grid-row: 1 / span 2; grid-column: 1; }
+.moves-variations-text { grid-row: 1; grid-column: 2; font-size: 13px; }
+.moves-variations-meta {
+  grid-row: 2;
+  grid-column: 2;
+  font-size: 11px;
+  font-weight: 700;
+  color: rgba(235,247,240,0.70);
+}
+
+.moves-variations-cell:hover { background: rgba(255,255,255,0.04); }
+
+.moves-variations-cell.active {
+  background: linear-gradient(180deg, rgba(255,255,255,0.02), rgba(255,255,255,0.01));
+  box-shadow: inset 0 1px 0 rgba(255,255,255,0.02);
+}
+
+.moves-variations-cell.empty {
+  display: inline-block;
+  width: 20px;
+  height: 24px;
+  border-radius: 8px;
+  background: rgba(255,255,255,0.01);
+  border: 1px dashed rgba(255,255,255,0.04);
+}
+
+
+
+.moves-variations-empty {
+  flex: 1 1 auto;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 12px 0;
+}
+
+/* Collapsed/hidden state when no moves exist */
+.move-history.hidden {
+  width: 0 !important;
+  padding-left: 0 !important;
+  padding-right: 0 !important;
+  opacity: 0;
+  pointer-events: none;
+}
+
+/* Center board when history hidden */
+.game-area.no-history { justify-content: center; }
+
+/* subtle elevation/shift for smoothness */
+.board-panel { transition: transform 360ms cubic-bezier(.2,.9,.2,1); }
+
+@media (prefers-reduced-motion: reduce) {
+  .move-history, .board-panel { transition: none !important; }
+}
+
+.move-entry {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 6px 8px;
+  border-radius: 8px;
+  transition: background 120ms ease;
+}
+
+.move-entry:hover { background: rgba(255,255,255,0.02); }
+
+.move-entry { cursor: pointer; }
+
+.move-entry.active-preview { background: linear-gradient(180deg, rgba(255,255,255,0.02), rgba(255,255,255,0.01)); box-shadow: inset 0 1px 0 rgba(255,255,255,0.02); }
+
+.move-entry .pill {
+  width: 14px;
+  height: 14px;
+  border-radius: 50%;
+  display: inline-block;
+  box-shadow: inset 0 2px 3px rgba(255,255,255,0.06), 0 1px 0 rgba(0,0,0,0.25);
+}
+.move-entry .move-index { color: rgba(235,247,240,0.65); font-weight:700; min-width:28px; }
+.move-entry .move-text { color: rgba(235,247,240,0.95); font-weight:600; }
+
+.pill.black-pill { background: radial-gradient(circle at 30% 30%, #444, #000 70%); }
+.pill.white-pill { background: radial-gradient(circle at 30% 30%, #fff, #ddd 70%); border: 1px solid rgba(0,0,0,0.06); }
+
+/* Responsive: stack vertically on small screens */
+@media (max-width: 880px) {
+  .game-area { flex-direction: column; align-items: center; }
+  .move-history { width: 100%; max-width: 420px; height: auto; }
+  .moves-list { max-height: 220px; }
 }
 
 .status-left,

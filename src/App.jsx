@@ -39,11 +39,22 @@ function countPieces(board) {
 }
 
 export default function App() {
+  /**
+   * MoveNode shape for move tree
+   * @typedef {Object} MoveNode
+   * @property {number|null} row - Row index of the move (null for root)
+   * @property {number|null} col - Column index of the move (null for root)
+   * @property {string|number|null} player - Player who made the move (null for root)
+   * @property {string|null} parentId - Parent node id (null for root)
+   * @property {string[]} children - Child node ids
+   * @property {number[][]} boardAfter - Board state after move
+   */
+
   const [board, setBoard] = useState(initialBoard);
   const [player, setPlayer] = useState(1);
   const [validMoves, setValidMoves] = useState(initialValidMoves);
   const [lastMove, setLastMove] = useState(null);
-  const [history, setHistory] = useState([]); // stack of previous states for undo
+  const [moves, setMoves] = useState([]); // sequential move history
   const [loading, setLoading] = useState(false);
   const [flippedTiles, setFlippedTiles] = useState([]);
 
@@ -54,9 +65,39 @@ export default function App() {
   const [winner, setWinner] = useState(null);
   const [finalScore, setFinalScore] = useState(null);
 
+  // Move tree state
+  const moveTreeRef = useRef(new Map());
+  const [currentNodeId, setCurrentNodeId] = useState(null);
+  const moveTreeNodeIdRef = useRef(0);
   const aiColor = mode === "HUMAN_VS_AI" ? -humanColor : null;
   const liveScore = countPieces(board);
   const aiRequestIdRef = useRef(0);
+
+  function nextMoveTreeNodeId() {
+    moveTreeNodeIdRef.current += 1;
+    return `n${moveTreeNodeIdRef.current}`;
+  }
+
+  function ensureMoveTreeRoot(boardForRoot) {
+    if (!moveTreeRef.current || !(moveTreeRef.current instanceof Map)) {
+      moveTreeRef.current = new Map();
+    }
+
+    if (moveTreeRef.current.has("root")) return;
+
+    const rootNode = {
+      id: "root",
+      player: null,
+      row: null,
+      col: null,
+      boardAfter: (boardForRoot || initialBoard).map((r) => r.slice()),
+      nextPlayer: 1,
+      validMovesNext: initialValidMoves.map((m) => ({ ...m })),
+      parentId: null,
+      children: [],
+    };
+    moveTreeRef.current.set("root", rootNode);
+  }
 
   // ---------- AI MOVE ----------
   useEffect(() => {
@@ -71,21 +112,6 @@ export default function App() {
         const reqId = Date.now();
         aiRequestIdRef.current = reqId;
 
-        // push current state to history so undo can restore it
-        setHistory((h) => [
-          ...h,
-          {
-            board: board.map((r) => r.slice()),
-            player,
-            validMoves,
-            lastMove,
-            flippedTiles,
-            phase,
-            winner,
-            finalScore,
-          },
-        ]);
-
         const res = await makeAIMove({ board, player });
 
         // if request was cancelled (undo pressed) ignore response
@@ -97,6 +123,76 @@ export default function App() {
         aiRequestIdRef.current = 0;
 
         setBoard(res.board);
+
+        // --- Move tree: ensure root exists, then record AI move OR AI pass as a node ---
+        ensureMoveTreeRoot(board);
+
+        const parentIdForAI =
+          currentNodeId && moveTreeRef.current.has(currentNodeId) ? currentNodeId : "root";
+        const parentNodeForAI = moveTreeRef.current.get(parentIdForAI);
+
+        let createdNodeId = null;
+
+        if (parentNodeForAI) {
+          const isAIMove = res.move && typeof res.move.row === "number";
+          const nodeId = nextMoveTreeNodeId();
+          const node = {
+            id: nodeId,
+            player,
+            row: isAIMove ? res.move.row : null,
+            col: isAIMove ? res.move.col : null,
+            boardAfter: res.board.map((r) => r.slice()),
+            nextPlayer: res.game_over ? null : res.next_player,
+            validMovesNext: res.game_over ? [] : normalizeMoves(res.valid_moves),
+            parentId: parentNodeForAI.id,
+            children: [],
+          };
+          moveTreeRef.current.set(nodeId, node);
+          parentNodeForAI.children.push(nodeId);
+          setCurrentNodeId(nodeId);
+          createdNodeId = nodeId;
+        }
+        // record AI move if provided
+        if (res.move && typeof res.move.row === "number") {
+          setMoves((m) => [
+            ...m,
+            {
+              nodeId: createdNodeId,
+              player,
+              row: res.move.row,
+              col: res.move.col,
+              source: "AI",
+              board: res.board.map(r => r.slice()),
+              flipped: res.flipped || [],
+              validMoves: normalizeMoves(res.valid_moves),
+              nextPlayer: res.game_over ? null : res.next_player,
+              moveType: "move",
+              score: countPieces(res.board),
+              phase: res.game_over ? "GAME_OVER" : "PLAYING",
+              winner: res.winner ?? null,
+            },
+          ]);
+        } else {
+          // AI pass
+          setMoves((m) => [
+            ...m,
+            {
+              nodeId: createdNodeId,
+              player,
+              row: null,
+              col: null,
+              source: "AI",
+              board: res.board.map(r => r.slice()),
+              flipped: [],
+              validMoves: normalizeMoves(res.valid_moves),
+              nextPlayer: res.game_over ? null : res.next_player,
+              moveType: "pass",
+              score: countPieces(res.board),
+              phase: res.game_over ? "GAME_OVER" : "PLAYING",
+              winner: res.winner ?? null,
+            },
+          ]);
+        }
 
         if (res.game_over) {
           const score = countPieces(res.board);
@@ -151,6 +247,51 @@ export default function App() {
         }
 
         // PASS: switch turn
+        // Record pass as a move-tree node (board doesn't change, but turn does)
+        ensureMoveTreeRoot(board);
+        const parentIdForPass =
+          currentNodeId && moveTreeRef.current.has(currentNodeId) ? currentNodeId : "root";
+        const parentNodeForPass = moveTreeRef.current.get(parentIdForPass);
+
+        let passNodeId = null;
+        if (parentNodeForPass) {
+          const nodeId = nextMoveTreeNodeId();
+          const node = {
+            id: nodeId,
+            player,
+            row: null,
+            col: null,
+            boardAfter: board.map((r) => r.slice()),
+            nextPlayer,
+            validMovesNext: normalizeMoves(res.valid_moves),
+            parentId: parentNodeForPass.id,
+            children: [],
+          };
+          moveTreeRef.current.set(nodeId, node);
+          parentNodeForPass.children.push(nodeId);
+          setCurrentNodeId(nodeId);
+          passNodeId = nodeId;
+        }
+
+        setMoves((m) => [
+          ...m,
+          {
+            nodeId: passNodeId,
+            player,
+            row: null,
+            col: null,
+            source: mode === "HUMAN_VS_AI" && player === aiColor ? "AI" : "HUMAN",
+            board: board.map((r) => r.slice()),
+            flipped: [],
+            validMoves: normalizeMoves(res.valid_moves),
+            nextPlayer,
+            moveType: "pass",
+            score: countPieces(board),
+            phase: "PLAYING",
+            winner: null,
+          },
+        ]);
+
         setPlayer(nextPlayer);
         setValidMoves(normalizeMoves(res.valid_moves));
         setLastMove(null);
@@ -179,7 +320,8 @@ export default function App() {
 
     
 
-  async function handleCellClick(row, col) {
+  async function handleCellClick(row, col) 
+  {
     if (phase !== "PLAYING" || loading) return;
     if (mode === "HUMAN_VS_AI" && player === aiColor) return;
 
@@ -188,20 +330,6 @@ export default function App() {
 
     try {
       setLoading(true);
-      // push current state so it can be undone
-      setHistory((h) => [
-        ...h,
-        {
-          board: board.map((r) => r.slice()),
-          player,
-          validMoves,
-          lastMove,
-          flippedTiles,
-          phase,
-          winner,
-          finalScore,
-        },
-      ]);
 
       // cancel any pending AI request (if user plays while AI was pending)
       if (aiRequestIdRef.current) aiRequestIdRef.current = 0;
@@ -209,6 +337,54 @@ export default function App() {
       const res = await makeMove({ board, player, row, col });
 
       setBoard(res.board);
+
+      // --- Move tree: ensure root exists, then record human move as a node ---
+      ensureMoveTreeRoot(board);
+
+      const parentIdForHuman =
+        currentNodeId && moveTreeRef.current.has(currentNodeId) ? currentNodeId : "root";
+      const parentNodeForHuman = moveTreeRef.current.get(parentIdForHuman);
+
+      let createdNodeId = null;
+
+      if (parentNodeForHuman) {
+        const nodeId = nextMoveTreeNodeId();
+        const node = {
+          id: nodeId,
+          player,
+          row,
+          col,
+          boardAfter: res.board.map((r) => r.slice()),
+          nextPlayer: res.game_over ? null : res.next_player,
+          validMovesNext: res.game_over ? [] : normalizeMoves(res.valid_moves),
+          parentId: parentNodeForHuman.id,
+          children: [],
+        };
+        moveTreeRef.current.set(nodeId, node);
+        parentNodeForHuman.children.push(nodeId);
+        setCurrentNodeId(nodeId);
+        createdNodeId = nodeId;
+      }
+
+      // record the human move
+      setMoves((m) => [
+        ...m,
+        {
+          nodeId: createdNodeId,
+          player,
+          row,
+          col,
+          source: "HUMAN",
+          board: res.board.map(r => r.slice()),
+          flipped: res.flipped || [],
+          validMoves: normalizeMoves(res.valid_moves),
+          nextPlayer: res.game_over ? null : res.next_player,
+          moveType: "move",
+          score: countPieces(res.board),
+          phase: res.game_over ? "GAME_OVER" : "PLAYING",
+          winner: res.winner ?? null,
+        },
+      ]);
 
       if (res.game_over) {
         const score = countPieces(res.board);
@@ -231,56 +407,67 @@ export default function App() {
   }
 
   function undoMove() {
-    if (!history || history.length === 0) return;
+    // If an AI request is pending, cancel it (keep existing cancellation behavior)
+    if (aiRequestIdRef.current) aiRequestIdRef.current = 0;
 
-    // If an AI request is pending, cancel it and undo the human move
-    if (aiRequestIdRef.current) {
-      aiRequestIdRef.current = 0;
-      const prev = history[history.length - 1];
-      setHistory((h) => h.slice(0, h.length - 1));
+    if (!moveTreeRef.current || !(moveTreeRef.current instanceof Map)) return;
+    if (!currentNodeId || !moveTreeRef.current.has(currentNodeId)) return;
+    if (currentNodeId === "root") return;
 
-      setBoard(prev.board.map((r) => r.slice()));
-      setPlayer(prev.player);
-      setValidMoves(prev.validMoves || []);
-      setLastMove(prev.lastMove || null);
-      setFlippedTiles(prev.flippedTiles || []); 
-      setPhase(prev.phase || "PLAYING");
-      setWinner(prev.winner || null);
-      setFinalScore(prev.finalScore || null);
-      return;
-    }
+    const undoneNode = moveTreeRef.current.get(currentNodeId);
+    const parentId = undoneNode?.parentId;
+    if (!parentId || !moveTreeRef.current.has(parentId)) return;
 
-    // In Human vs AI mode, undo full human+AI turn when AI moved last
+    let targetNodeId = parentId;
+
     if (mode === "HUMAN_VS_AI") {
-      const last = history[history.length - 1];
-      if (last && last.player === aiColor && history.length >= 2) {
-        const restored = history[history.length - 2];
-        setHistory((h) => h.slice(0, h.length - 2));
-
-        setBoard(restored.board.map((r) => r.slice()));
-        setPlayer(restored.player);
-        setValidMoves(restored.validMoves || []);
-        setLastMove(restored.lastMove || null);
-        setFlippedTiles(restored.flippedTiles || []);
-        setPhase(restored.phase || "PLAYING");
-        setWinner(restored.winner || null);
-        setFinalScore(restored.finalScore || null);
-        return;
+      if (undoneNode && undoneNode.player === aiColor) {
+        const parentNode = moveTreeRef.current.get(parentId);
+        const parentParentId = parentNode?.parentId;
+        if (!parentParentId || !moveTreeRef.current.has(parentParentId)) return;
+        targetNodeId = parentParentId;
       }
     }
 
-    // Default: pop one snapshot
-    const prev = history[history.length - 1];
-    setHistory((h) => h.slice(0, h.length - 1));
+    const targetNode = moveTreeRef.current.get(targetNodeId);
+    if (!targetNode) return;
 
-    setBoard(prev.board.map((r) => r.slice()));
-    setPlayer(prev.player);
-    setValidMoves(prev.validMoves || []);
-    setLastMove(prev.lastMove || null);
-    setFlippedTiles(prev.flippedTiles || []); 
-    setPhase(prev.phase || "PLAYING");
-    setWinner(prev.winner || null);
-    setFinalScore(prev.finalScore || null);
+    const restoredBoard = targetNode.boardAfter.map((r) => r.slice());
+
+    setCurrentNodeId(targetNodeId);
+    setBoard(restoredBoard);
+
+    // Restore player as the side to move at this position
+    const restoredPlayer = targetNode.nextPlayer ?? 1;
+    setPlayer(restoredPlayer);
+
+    setLastMove(
+      targetNode.row !== null && targetNode.col !== null
+        ? { row: targetNode.row, col: targetNode.col }
+        : null
+    );
+    setFlippedTiles([]);
+
+    // If undoing from game over, resume play
+    if (phase === "GAME_OVER") {
+      setWinner(null);
+      setFinalScore(null);
+      setPhase("PLAYING");
+    }
+
+    // Refresh valid moves for the restored state
+    (async () => {
+      try {
+        const res = await fetch("http://127.0.0.1:8000/valid-moves", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ board: restoredBoard, player: restoredPlayer }),
+        }).then((r) => r.json());
+        setValidMoves(normalizeMoves(res.valid_moves));
+      } catch (e) {
+        setValidMoves([]);
+      }
+    })();
   }
 
   function handlePassIfNeeded(board, currentPlayer, moves) {
@@ -298,18 +485,31 @@ export default function App() {
     setFlippedTiles([]);
     setWinner(null);
     setFinalScore(null);
-    // clear undo history when starting a fresh game
-    setHistory([]);
+    setMoves([]);
     // cancel any pending AI requests
     if (aiRequestIdRef.current) aiRequestIdRef.current = 0;
     setPhase("PLAYING");
+    // --- Move tree: initialize root node ---
+    moveTreeNodeIdRef.current = 0;
+    const rootNode = {
+      id: "root",
+      player: null,
+      row: null,
+      col: null,
+      boardAfter: initialBoard.map(r => r.slice()),
+      nextPlayer: 1,
+      validMovesNext: initialValidMoves.map((m) => ({ ...m })),
+      parentId: null,
+      children: [],
+    };
+    moveTreeRef.current = new Map([["root", rootNode]]);
+    setCurrentNodeId("root");
   }
 
   function resetGame() {
-    // clear history and reset state when user goes to setup/new game
-    setHistory([]);
     setLastMove(null);
     setFlippedTiles([]);
+    setMoves([]);
 
     if (aiRequestIdRef.current) aiRequestIdRef.current = 0;
     setPhase("SETUP");
@@ -332,6 +532,114 @@ export default function App() {
       return color === humanColor ? "You" : "AI";
     }
     return colorName(color);
+  }
+
+  function notation(row, col) {
+    const files = ["a","b","c","d","e","f","g","h"];
+    if (typeof row !== 'number' || typeof col !== 'number') return "";
+    return `${files[col] || '?'}${row + 1}`;
+  }
+
+  function moveLabelFromNode(node) {
+    if (!node) return "";
+    if (node.row === null || node.col === null) return "pass";
+    return notation(node.row, node.col);
+  }
+
+  function nodeMetaLabel(node) {
+    if (!node) return "";
+    const who = node.player === 1 || node.player === -1 ? colorName(node.player) : "";
+    if (mode !== "HUMAN_VS_AI") return who;
+    const actor = node.player === aiColor ? "AI" : "You";
+    return `${who} · ${actor}`;
+  }
+
+  function computeWinnerFromScore(score) {
+    if (!score) return null;
+    if (score.black > score.white) return 1;
+    if (score.white > score.black) return -1;
+    return "DRAW";
+  }
+
+  function getMoveTreeRowsByPly() {
+    if (!moveTreeRef.current || !(moveTreeRef.current instanceof Map)) return [];
+    if (!moveTreeRef.current.has("root")) return [];
+
+    /** @type {string[][]} */
+    const rows = [];
+    const map = moveTreeRef.current;
+
+    function dfs(parentId, depth) {
+      const parent = map.get(parentId);
+      if (!parent) return;
+
+      const children = Array.isArray(parent.children) ? parent.children : [];
+      for (const childId of children) {
+        if (!rows[depth]) rows[depth] = [];
+        rows[depth].push(childId);
+        dfs(childId, depth + 1);
+      }
+    }
+
+    dfs("root", 0);
+    return rows;
+  }
+
+  function jumpToNodeId(nodeId) {
+    if (!nodeId) return;
+    if (!moveTreeRef.current || !(moveTreeRef.current instanceof Map)) return;
+    if (!moveTreeRef.current.has(nodeId)) return;
+
+    // cancel any pending AI and stop any loading UI
+    if (aiRequestIdRef.current) aiRequestIdRef.current = 0;
+    setLoading(false);
+
+    const node = moveTreeRef.current.get(nodeId);
+    const jumpedBoard = node.boardAfter.map((r) => r.slice());
+    const jumpedPlayer = node.nextPlayer ?? 1;
+    const storedValidMoves = Array.isArray(node.validMovesNext)
+      ? normalizeMoves(node.validMovesNext)
+      : null;
+
+    setCurrentNodeId(nodeId);
+    setBoard(jumpedBoard);
+    setPlayer(jumpedPlayer);
+    setLastMove(
+      node.row !== null && node.col !== null ? { row: node.row, col: node.col } : null
+    );
+    setFlippedTiles([]);
+
+    // Prefer the stored valid moves for this node/branch.
+    // Fallback to backend only if missing.
+    if (storedValidMoves) {
+      setValidMoves(storedValidMoves);
+    } else {
+      (async () => {
+        try {
+          const res = await fetch("http://127.0.0.1:8000/valid-moves", {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({ board: jumpedBoard, player: jumpedPlayer }),
+          }).then((r) => r.json());
+          setValidMoves(normalizeMoves(res.valid_moves));
+        } catch (e) {
+          setValidMoves([]);
+        }
+      })();
+    }
+
+    // Phase: treat nodes with nextPlayer === null as terminal.
+    // For other cases, let the existing game-over/pass effect handle it.
+    if (node.nextPlayer === null) {
+      const score = countPieces(jumpedBoard);
+      setFinalScore(score);
+      setWinner(computeWinnerFromScore(score));
+      setPhase("GAME_OVER");
+    } else {
+      setWinner(null);
+      setFinalScore(null);
+      setPhase("PLAYING");
+    }
   }
 
   return (
@@ -367,7 +675,7 @@ export default function App() {
             </div>
               <div style={{ display: 'flex', gap: 8, alignItems: 'center' }}>
                 <button className="reset-btn" onClick={resetGame}>Reset</button>
-                <button className="reset-btn" onClick={undoMove} disabled={history.length === 0} title={history.length ? 'Undo last move' : 'No moves to undo'}>
+                <button className="reset-btn" onClick={undoMove} disabled={currentNodeId === "root"} title={currentNodeId !== "root" ? 'Undo last move' : 'No moves to undo'}>
                   Undo
                 </button>
               </div>
@@ -375,16 +683,76 @@ export default function App() {
         </div>
       )}
 
-      <Board
-        board={board}
-        validMoves={phase === "PLAYING" ? validMoves : []}
-        lastMove={lastMove}
-        flippedTiles={flippedTiles}
-        onCellClick={handleCellClick}
-        currentPlayer={player}
-      />
+      <div className={`game-area ${moves.length === 0 ? 'no-history' : ''}`}>
+        <div className="board-panel">
+          <Board
+            board={board}
+            validMoves={phase === "PLAYING" ? validMoves : []}
+            lastMove={lastMove}
+            flippedTiles={flippedTiles}
+            onCellClick={handleCellClick}
+            currentPlayer={player}
+          />
 
-      {loading && phase === "PLAYING" && <p>Thinking…</p>}
+          {loading && phase === "PLAYING" && <p>Thinking…</p>}
+        </div>
+
+        {/* ---------- MOVE HISTORY ---------- */}
+        <div className={`move-history ${moves.length === 0 ? 'hidden' : ''}`}>
+          <div className="move-history-header">
+            <h3>Move History</h3>
+          </div>
+          {(() => {
+            const rows = getMoveTreeRowsByPly();
+            const maxPly = rows.length;
+
+            if (maxPly === 0) {
+              return (
+                <div className="moves-variations-empty">
+                  <div className="muted">No moves yet</div>
+                </div>
+              );
+            }
+
+            return (
+              <div className="moves-variations" role="table" aria-label="Move variations">
+                {Array.from({ length: maxPly }, (_, plyIndex) => (
+                  <div key={plyIndex} className="moves-variations-row" role="row">
+                    <div className="moves-variations-index" role="cell">
+                      Move {plyIndex + 1}
+                    </div>
+
+                    <div className="moves-variations-cells" role="cell">
+                      {(rows[plyIndex] || []).map((nodeId, optionIndex) => {
+                        if (!nodeId || !moveTreeRef.current.has(nodeId)) return null;
+
+                        const node = moveTreeRef.current.get(nodeId);
+                        const label = moveLabelFromNode(node);
+                        const meta = nodeMetaLabel(node);
+                        const isActive = nodeId === currentNodeId;
+
+                        return (
+                          <button
+                            key={`${plyIndex}-${optionIndex}-${nodeId}`}
+                            type="button"
+                            className={`moves-variations-cell ${isActive ? 'active' : ''}`}
+                            onClick={() => jumpToNodeId(nodeId)}
+                            title={meta ? `${label} (${meta})` : label}
+                          >
+                            <span className={node.player === 1 ? 'pill black-pill' : 'pill white-pill'} />
+                            <span className="moves-variations-text">{label}</span>
+                            {meta && <span className="moves-variations-meta">{meta}</span>}
+                          </button>
+                        );
+                      })}
+                    </div>
+                  </div>
+                ))}
+              </div>
+            );
+          })()}
+        </div>
+      </div>
 
       {/* ---------- SETUP OVERLAY ---------- */}
       {phase === "SETUP" && (
@@ -414,15 +782,13 @@ export default function App() {
                 </div>
               </label>
 
-              {mode === "HUMAN_VS_AI" && (
-                <label>
-                  <span>Your Color</span>
-                  <div className="color-choices">
-                    <button type="button" className={humanColor===1?"btn color active":"btn color"} onClick={() => setHumanColor(1)}>Black</button>
-                    <button type="button" className={humanColor===-1?"btn color active":"btn color"} onClick={() => setHumanColor(-1)}>White</button>
-                  </div>
-                </label>
-              )}
+              <label className={`color-block ${mode === "HUMAN_VS_AI" ? 'visible' : 'collapsed'}`}>
+                <span>Your Color</span>
+                <div className="color-choices">
+                  <button type="button" className={humanColor===1?"btn color active":"btn color"} onClick={() => setHumanColor(1)}>Black</button>
+                  <button type="button" className={humanColor===-1?"btn color active":"btn color"} onClick={() => setHumanColor(-1)}>White</button>
+                </div>
+              </label>
             </div>
 
             <div className="actions">
