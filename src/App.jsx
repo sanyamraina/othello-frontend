@@ -559,10 +559,60 @@ export default function App() {
     return notation(node.row, node.col);
   }
 
+  function moveLabelFromMove(move) {
+    if (!move) return "";
+    if (move.row === null || move.col === null) return "pass";
+    return notation(move.row, move.col);
+  }
+
   function nodeMetaLabel(node) {
     if (!node) return "";
     if (mode !== "HUMAN_VS_AI") return "";
     return node.player === aiColor ? "AI" : "You";
+  }
+
+  function getAncestorDistanceMap(nodeId) {
+    const distances = new Map();
+    if (!nodeId || !moveTreeRef.current || !(moveTreeRef.current instanceof Map)) return distances;
+    if (!moveTreeRef.current.has(nodeId)) return distances;
+
+    let currentId = nodeId;
+    let distance = 0;
+    while (currentId && moveTreeRef.current.has(currentId)) {
+      distances.set(currentId, distance);
+      const node = moveTreeRef.current.get(currentId);
+      if (!node || !node.parentId) break;
+      currentId = node.parentId;
+      distance += 1;
+    }
+    return distances;
+  }
+
+  function getDistanceToCurrent(nodeId, ancestorDistances) {
+    if (!nodeId || !ancestorDistances || ancestorDistances.size === 0) return null;
+    if (!moveTreeRef.current || !(moveTreeRef.current instanceof Map)) return null;
+    if (!moveTreeRef.current.has(nodeId)) return null;
+    if (ancestorDistances.has(nodeId)) return ancestorDistances.get(nodeId);
+
+    let distance = 0;
+    let currentId = nodeId;
+    while (currentId && moveTreeRef.current.has(currentId)) {
+      const node = moveTreeRef.current.get(currentId);
+      const parentId = node && node.parentId ? node.parentId : null;
+      distance += 1;
+      if (parentId && ancestorDistances.has(parentId)) {
+        return distance + ancestorDistances.get(parentId);
+      }
+      currentId = parentId;
+    }
+    return null;
+  }
+
+  function getDistanceClass(nodeId, ancestorDistances) {
+    const distance = getDistanceToCurrent(nodeId, ancestorDistances);
+    if (distance === 0) return " is-active";
+    if (distance === 1) return " is-near";
+    return " is-inactive";
   }
 
   function computeWinnerFromScore(score) {
@@ -738,6 +788,110 @@ export default function App() {
             <h3>Move History</h3>
           </div>
           {(() => {
+            const ancestorDistances = getAncestorDistanceMap(currentNodeId);
+
+            if (mode === "HUMAN_VS_AI") {
+              const firstMover = moves[0]?.player ?? humanColor;
+              const leftColor = firstMover;
+              const rightColor = firstMover === 1 ? -1 : 1;
+              /** @type {Array<{ index: number, left: any, right: any }>} */
+              const turns = [];
+              let currentTurn = null;
+
+              for (const move of moves) {
+                const isLeftMove = move.player === leftColor;
+                const slotTaken = isLeftMove ? currentTurn?.left : currentTurn?.right;
+
+                if (!currentTurn || slotTaken) {
+                  currentTurn = { index: turns.length + 1, left: null, right: null };
+                  turns.push(currentTurn);
+                }
+
+                if (isLeftMove) currentTurn.left = move;
+                else currentTurn.right = move;
+              }
+
+              if (turns.length === 0) {
+                return (
+                  <div className="moves-variations-empty">
+                    <div className="muted">No moves yet</div>
+                  </div>
+                );
+              }
+
+              return (
+                <div className="move-turns" role="table" aria-label="Move turns">
+                  {turns.map((turn) => {
+                    const isCurrentRow =
+                      (turn.left && turn.left.nodeId === currentNodeId) ||
+                      (turn.right && turn.right.nodeId === currentNodeId);
+
+                    return (
+                    <div
+                      key={turn.index}
+                      className={`move-turn-row${isCurrentRow ? ' is-current' : ''}`}
+                      role="row"
+                    >
+                      <div className="move-turn-index" role="cell">
+                        {turn.index}
+                      </div>
+
+                      <div className="move-turn-cells" role="cell">
+                        {["left", "right"].map((slot) => {
+                          const entry = turn[slot];
+                          if (!entry) {
+                            return (
+                              <div
+                                key={`${turn.index}-${slot}-empty`}
+                                className="move-turn-cell empty"
+                                aria-hidden="true"
+                              />
+                            );
+                          }
+
+                          const label = moveLabelFromMove(entry);
+                          const isHovered = entry.nodeId && entry.nodeId === hoveredNodeId;
+                          const stateClass = getDistanceClass(entry.nodeId, ancestorDistances);
+
+                          const cellContent = (
+                            <>
+                              <span className={entry.player === 1 ? 'pill black-pill' : 'pill white-pill'} />
+                              <span className="move-turn-text">{label}</span>
+                            </>
+                          );
+
+                          if (!entry.nodeId) {
+                            return (
+                              <div key={`${turn.index}-${slot}`} className={`move-turn-cell${stateClass}`}>
+                                {cellContent}
+                              </div>
+                            );
+                          }
+
+                          return (
+                            <button
+                              key={`${turn.index}-${slot}`}
+                              type="button"
+                              className={`move-turn-cell${stateClass}${isHovered ? ' is-hovered' : ''}`}
+                              onClick={() => jumpToNodeId(entry.nodeId)}
+                              onMouseEnter={() => setHoveredNodeId(entry.nodeId)}
+                              onMouseLeave={() => setHoveredNodeId(null)}
+                              onFocus={() => setHoveredNodeId(entry.nodeId)}
+                              onBlur={() => setHoveredNodeId(null)}
+                              title={label}
+                            >
+                              {cellContent}
+                            </button>
+                          );
+                        })}
+                      </div>
+                    </div>
+                    );
+                  })}
+                </div>
+              );
+            }
+
             const rows = getMoveTreeRowsByPly();
             const maxPly = rows.length;
 
@@ -751,8 +905,13 @@ export default function App() {
 
             return (
               <div className="moves-variations" role="table" aria-label="Move variations">
-                {Array.from({ length: maxPly }, (_, plyIndex) => (
-                  <div key={plyIndex} className="moves-variations-row" role="row">
+                {Array.from({ length: maxPly }, (_, plyIndex) => {
+                  return (
+                  <div
+                    key={plyIndex}
+                    className="moves-variations-row"
+                    role="row"
+                  >
                     <div className="moves-variations-index" role="cell">
                       {plyIndex + 1}
                     </div>
@@ -774,8 +933,8 @@ export default function App() {
                         const node = moveTreeRef.current.get(nodeId);
                         const label = moveLabelFromNode(node);
                         const meta = nodeMetaLabel(node);
-                        const isActive = nodeId === currentNodeId;
                         const isHovered = nodeId === hoveredNodeId;
+                        const stateClass = getDistanceClass(nodeId, ancestorDistances);
                         const rowNodeIds = rows[plyIndex] || [];
                         const labelCounts = new Map();
                         for (const id of rowNodeIds) {
@@ -790,7 +949,7 @@ export default function App() {
                           <button
                             key={`${plyIndex}-${optionIndex}-${nodeId}`}
                             type="button"
-                            className={`moves-variations-cell${isActive ? ' is-active' : ''}${isHovered ? ' is-hovered' : ''}${isDuplicateLabel ? ' is-duplicate-label' : ''}`}
+                            className={`moves-variations-cell${stateClass}${isHovered ? ' is-hovered' : ''}${isDuplicateLabel ? ' is-duplicate-label' : ''}`}
                             onClick={() => jumpToNodeId(nodeId)}
                             onMouseEnter={() => setHoveredNodeId(nodeId)}
                             onMouseLeave={() => setHoveredNodeId(null)}
@@ -806,7 +965,8 @@ export default function App() {
                       })}
                     </div>
                   </div>
-                ))}
+                  );
+                })}
               </div>
             );
           })()}
