@@ -57,6 +57,7 @@ export default function App() {
   const [moves, setMoves] = useState([]); // sequential move history
   const [loading, setLoading] = useState(false);
   const [flippedTiles, setFlippedTiles] = useState([]);
+  const [historyViewMode, setHistoryViewMode] = useState(false);
 
   const [mode, setMode] = useState("HUMAN_VS_AI");
   const [humanColor, setHumanColor] = useState(1);
@@ -107,6 +108,7 @@ export default function App() {
     if (mode !== "HUMAN_VS_AI") return;
     if (player !== aiColor) return;
     if (loading) return;
+    if (historyViewMode) return;
 
     (async () => {
       try {
@@ -216,7 +218,7 @@ export default function App() {
         setLoading(false);
       }
     })();
-  }, [board, player, phase, mode, aiColor, loading]);
+  }, [board, player, phase, mode, aiColor, loading, historyViewMode]);
 
   // ---------- NEW GAME OVER CHECK ----------
 
@@ -224,6 +226,7 @@ export default function App() {
     if (phase !== "PLAYING") return;
     if (loading) return;
     if (mode === "HUMAN_VS_AI" && player === aiColor) return;
+    if (historyViewMode) return;
     if (validMoves.length > 0) return;
 
     (async () => {
@@ -325,6 +328,7 @@ export default function App() {
   {
     if (phase !== "PLAYING" || loading) return;
     if (mode === "HUMAN_VS_AI" && player === aiColor) return;
+    if (historyViewMode) setHistoryViewMode(false);
 
     const isValid = validMoves.some((m) => m.row === row && m.col === col);
     if (!isValid) return;
@@ -338,7 +342,7 @@ export default function App() {
         return node && node.player === player && node.row === row && node.col === col;
       });
       if (existingChildId) {
-        jumpToNodeId(existingChildId);
+        jumpToNodeId(existingChildId, false);
         return;
       }
     }
@@ -425,6 +429,7 @@ export default function App() {
   function undoMove() {
     // If an AI request is pending, cancel it (keep existing cancellation behavior)
     if (aiRequestIdRef.current) aiRequestIdRef.current = 0;
+    if (historyViewMode) setHistoryViewMode(false);
 
     if (!moveTreeRef.current || !(moveTreeRef.current instanceof Map)) return;
     if (!currentNodeId || !moveTreeRef.current.has(currentNodeId)) return;
@@ -498,6 +503,7 @@ export default function App() {
     setWinner(null);
     setFinalScore(null);
     setMoves([]);
+    setHistoryViewMode(false);
     // cancel any pending AI requests
     if (aiRequestIdRef.current) aiRequestIdRef.current = 0;
     setPhase("PLAYING");
@@ -523,6 +529,7 @@ export default function App() {
     setLastMove(null);
     setFlippedTiles([]);
     setMoves([]);
+    setHistoryViewMode(false);
 
     if (aiRequestIdRef.current) aiRequestIdRef.current = 0;
     setPhase("SETUP");
@@ -674,7 +681,7 @@ export default function App() {
     return rows;
   }
 
-  function jumpToNodeId(nodeId) {
+  function jumpToNodeId(nodeId, fromHistory = false) {
     if (!nodeId) return;
     if (!moveTreeRef.current || !(moveTreeRef.current instanceof Map)) return;
     if (!moveTreeRef.current.has(nodeId)) return;
@@ -693,6 +700,7 @@ export default function App() {
     setCurrentNodeId(nodeId);
     setBoard(jumpedBoard);
     setPlayer(jumpedPlayer);
+    setHistoryViewMode(fromHistory && mode === "HUMAN_VS_AI");
     setLastMove(
       node.row !== null && node.col !== null ? { row: node.row, col: node.col } : null
     );
@@ -732,8 +740,10 @@ export default function App() {
       <h1 className="mt-4">Othello</h1>
 
       {/* ---------- STATUS BAR ---------- */}
-      {phase !== "SETUP" && (
-        <div className="status-bar">
+      <div
+        className={`status-bar${phase === "SETUP" ? " status-bar--placeholder" : ""}`}
+        aria-hidden={phase === "SETUP"}
+      >
           <div className="status-left">
             <div className="mode-label">
               Mode: <strong>{mode === "HUMAN_VS_AI" ? "Human vs AI" : "Human vs Human"}</strong>
@@ -758,15 +768,21 @@ export default function App() {
             <div className="turn-label">
               Turn: <strong>{colorName(player)}</strong>
             </div>
-              <div style={{ display: 'flex', gap: 8, alignItems: 'center' }}>
-                <button className="reset-btn" onClick={resetGame}>Reset</button>
-                <button className="reset-btn" onClick={undoMove} disabled={currentNodeId === "root"} title={currentNodeId !== "root" ? 'Undo last move' : 'No moves to undo'}>
-                  Undo
-                </button>
-              </div>
+            <div style={{ display: "flex", gap: 8, alignItems: "center" }}>
+              <button className="reset-btn" onClick={resetGame}>
+                Reset
+              </button>
+              <button
+                className="reset-btn"
+                onClick={undoMove}
+                disabled={currentNodeId === "root"}
+                title={currentNodeId !== "root" ? "Undo last move" : "No moves to undo"}
+              >
+                Undo
+              </button>
+            </div>
           </div>
-        </div>
-      )}
+      </div>
 
       <div className={`game-area ${moves.length === 0 ? 'no-history' : ''}`}>
         <div className="board-panel">
@@ -873,7 +889,7 @@ export default function App() {
                               key={`${turn.index}-${slot}`}
                               type="button"
                               className={`move-turn-cell${stateClass}${isHovered ? ' is-hovered' : ''}`}
-                              onClick={() => jumpToNodeId(entry.nodeId)}
+                              onClick={() => jumpToNodeId(entry.nodeId, true)}
                               onMouseEnter={() => setHoveredNodeId(entry.nodeId)}
                               onMouseLeave={() => setHoveredNodeId(null)}
                               onFocus={() => setHoveredNodeId(entry.nodeId)}
@@ -950,7 +966,7 @@ export default function App() {
                             key={`${plyIndex}-${optionIndex}-${nodeId}`}
                             type="button"
                             className={`moves-variations-cell${stateClass}${isHovered ? ' is-hovered' : ''}${isDuplicateLabel ? ' is-duplicate-label' : ''}`}
-                            onClick={() => jumpToNodeId(nodeId)}
+                            onClick={() => jumpToNodeId(nodeId, true)}
                             onMouseEnter={() => setHoveredNodeId(nodeId)}
                             onMouseLeave={() => setHoveredNodeId(null)}
                             onFocus={() => setHoveredNodeId(nodeId)}
