@@ -1,16 +1,39 @@
-# React + Vite
+# Othello Frontend
 
-This template provides a minimal setup to get React working in Vite with HMR and some ESLint rules.
+A React + Vite UI for playing Othello against another human or a simple AI. Includes a move tree, undo, and a clear setup flow.
 
-Currently, two official plugins are available:
+## Features
+- Human vs AI or Human vs Human modes
+- Move validation and highlights
+- Move history with branching (jump to any variation)
+- Undo with accurate board restoration
+- Game over summary with final score
 
-- [@vitejs/plugin-react](https://github.com/vitejs/vite-plugin-react/blob/main/packages/plugin-react) uses [Babel](https://babeljs.io/) (or [oxc](https://oxc.rs) when used in [rolldown-vite](https://vite.dev/guide/rolldown)) for Fast Refresh
-- [@vitejs/plugin-react-swc](https://github.com/vitejs/vite-plugin-react/blob/main/packages/plugin-react-swc) uses [SWC](https://swc.rs/) for Fast Refresh
+## Tech Stack
+- React 19 + Vite
+- Bootstrap 5
 
-## React Compiler
+## Prerequisites
+- Node.js 18+ and npm
 
-The React Compiler is not enabled on this template because of its impact on dev & build performances. To add it, see [this documentation](https://react.dev/learn/react-compiler/installation).
+## Quickstart
+```bash
+cd othello-frontend
+npm install
+npm run dev
+```
+Open `http://localhost:5173`.
 
-## Expanding the ESLint configuration
+## Backend Connection
+The app expects the API at `http://127.0.0.1:8000`. To point elsewhere, edit `API_URL` in `src/api.js`.
 
-If you are developing a production application, we recommend using TypeScript with type-aware lint rules enabled. Check out the [TS template](https://github.com/vitejs/vite/tree/main/packages/create-vite/template-react-ts) for information on how to integrate TypeScript and [`typescript-eslint`](https://typescript-eslint.io) in your project.
+## Scripts
+- `npm run dev` - Start the dev server
+- `npm run build` - Production build
+- `npm run preview` - Preview the build locally
+- `npm run lint` - Lint the codebase
+
+## Project Layout
+- `src/App.jsx` - Game flow, move history, and UI state
+- `src/Board.jsx` - Board rendering and interactions
+- `src/api.js` - API client for the FastAPI backend
