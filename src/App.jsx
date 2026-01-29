@@ -1760,52 +1760,109 @@ export default function App() {
       {/* ---------- SETUP OVERLAY ---------- */}
       {phase === "SETUP" && (
         <div className="overlay">
-          <div className="overlay-card">
-            <h2>Game Setup</h2>
-            <p className="muted">Quickly choose a mode and your color to begin.</p>
-
-            <div className="setup-form">
-              <label>
-                <span>Mode</span>
-                <div className="mode-choices">
-                  <button
-                    type="button"
-                    className={mode === "HUMAN_VS_AI" ? "btn mode active" : "btn mode"}
-                    onClick={() => setMode("HUMAN_VS_AI")}
-                  >
-                    Human vs AI
-                  </button>
-                  <button
-                    type="button"
-                    className={mode === "HUMAN_VS_HUMAN" ? "btn mode active" : "btn mode"}
-                    onClick={() => setMode("HUMAN_VS_HUMAN")}
-                  >
-                    Human vs Human
-                  </button>
-                </div>
-              </label>
-
-              <label className={`color-block ${mode === "HUMAN_VS_AI" ? 'visible' : 'collapsed'}`}>
-                <span>Your Color</span>
-                <div className="color-choices">
-                  <button type="button" className={humanColor===1?"btn color active":"btn color"} onClick={() => setHumanColor(1)}>Black</button>
-                  <button type="button" className={humanColor===-1?"btn color active":"btn color"} onClick={() => setHumanColor(-1)}>White</button>
-                </div>
-              </label>
-
-              <label className={`difficulty-block ${mode === "HUMAN_VS_AI" ? 'visible' : 'collapsed'}`}>
-                <span>AI Difficulty</span>
-                <div className="difficulty-choices">
-                  <button type="button" className={difficulty==="easy"?"btn difficulty active":"btn difficulty"} onClick={() => setDifficulty("easy")}>Easy</button>
-                  <button type="button" className={difficulty==="medium"?"btn difficulty active":"btn difficulty"} onClick={() => setDifficulty("medium")}>Medium</button>
-                  <button type="button" className={difficulty==="hard"?"btn difficulty active":"btn difficulty"} onClick={() => setDifficulty("hard")}>Hard</button>
-                  <button type="button" className={difficulty==="expert"?"btn difficulty active":"btn difficulty"} onClick={() => setDifficulty("expert")}>Expert</button>
-                </div>
-              </label>
+          <div className="overlay-card setup-card">
+            <div className="setup-header">
+              <h2>Welcome to Othello</h2>
+              <p className="setup-subtitle">Choose your game settings to begin</p>
             </div>
 
-            <div className="actions">
-              <button className="btn primary" onClick={startGame}>Start Game</button>
+            <div className="setup-content">
+              <div className="setup-section">
+                <div className="section-header">
+                  <h3>Game Mode</h3>
+                </div>
+                <div className="mode-grid">
+                  <button
+                    type="button"
+                    className={`mode-card ${mode === "HUMAN_VS_AI" ? "active" : ""}`}
+                    onClick={() => setMode("HUMAN_VS_AI")}
+                  >
+                    <div className="mode-title">vs AI</div>
+                    <div className="mode-desc">Play against computer</div>
+                  </button>
+                  <button
+                    type="button"
+                    className={`mode-card ${mode === "HUMAN_VS_HUMAN" ? "active" : ""}`}
+                    onClick={() => setMode("HUMAN_VS_HUMAN")}
+                  >
+                    <div className="mode-title">vs Human</div>
+                    <div className="mode-desc">Play with a friend</div>
+                  </button>
+                </div>
+              </div>
+
+              <div className={`setup-section ai-options ${mode === "HUMAN_VS_AI" ? 'visible' : 'hidden'}`}>
+                <div className="section-header">
+                  <h3>Your Color</h3>
+                </div>
+                <div className="color-grid">
+                  <button 
+                    type="button" 
+                    className={`color-card ${humanColor === 1 ? "active" : ""}`} 
+                    onClick={() => setHumanColor(1)}
+                  >
+                    <div className="color-piece black"></div>
+                    <span>Black</span>
+                    <small>Goes first</small>
+                  </button>
+                  <button 
+                    type="button" 
+                    className={`color-card ${humanColor === -1 ? "active" : ""}`} 
+                    onClick={() => setHumanColor(-1)}
+                  >
+                    <div className="color-piece white"></div>
+                    <span>White</span>
+                    <small>Goes second</small>
+                  </button>
+                </div>
+              </div>
+
+              <div className={`setup-section ai-options ${mode === "HUMAN_VS_AI" ? 'visible' : 'hidden'}`}>
+                <div className="section-header">
+                  <h3>AI Difficulty</h3>
+                </div>
+                <div className="difficulty-grid">
+                  <button 
+                    type="button" 
+                    className={`difficulty-card ${difficulty === "easy" ? "active" : ""}`} 
+                    onClick={() => setDifficulty("easy")}
+                  >
+                    <div className="difficulty-level">★</div>
+                    <span>Easy</span>
+                  </button>
+                  <button 
+                    type="button" 
+                    className={`difficulty-card ${difficulty === "medium" ? "active" : ""}`} 
+                    onClick={() => setDifficulty("medium")}
+                  >
+                    <div className="difficulty-level">★★</div>
+                    <span>Medium</span>
+                  </button>
+                  <button 
+                    type="button" 
+                    className={`difficulty-card ${difficulty === "hard" ? "active" : ""}`} 
+                    onClick={() => setDifficulty("hard")}
+                  >
+                    <div className="difficulty-level">★★★</div>
+                    <span>Hard</span>
+                  </button>
+                  <button 
+                    type="button" 
+                    className={`difficulty-card ${difficulty === "expert" ? "active" : ""}`} 
+                    onClick={() => setDifficulty("expert")}
+                  >
+                    <div className="difficulty-level">★★★★</div>
+                    <span>Expert</span>
+                  </button>
+                </div>
+              </div>
+            </div>
+
+            <div className="setup-footer">
+              <button className="start-game-btn" onClick={startGame}>
+                <span>Start Game</span>
+                <div className="btn-arrow">→</div>
+              </button>
             </div>
           </div>
         </div>
@@ -1874,24 +1931,48 @@ export default function App() {
       {/* ---------- GAME OVER OVERLAY ---------- */}
       {phase === "GAME_OVER" && finalScore && (
         <div className="overlay">
-          <div className="overlay-card game-over">
-            <h2>Game Over</h2>
-            <p className="game-over-message">{gameOverMessage()}</p>
+          <div className="overlay-card game-over-card">
+            <div className="game-over-header">
+              <h2 className="game-over-title">Game Over</h2>
+              <p className="game-over-result">{gameOverMessage()}</p>
+            </div>
 
-            <div className="score-breakdown">
-              <div className="score-card">
-                <strong>{scoreLabel(1)}</strong>
-                <span>{finalScore.black}</span>
+            <div className="final-score-section">
+              <h3>Final Score</h3>
+              <div className="score-comparison">
+                <div className={`player-score ${finalScore.black > finalScore.white ? 'winner' : finalScore.black < finalScore.white ? 'loser' : 'tie'}`}>
+                  <div className="score-piece black"></div>
+                  <div className="score-info">
+                    <div className="player-name">{scoreLabel(1)}</div>
+                    <div className="score-value">{finalScore.black}</div>
+                  </div>
+                </div>
+                
+                <div className="score-vs">vs</div>
+                
+                <div className={`player-score ${finalScore.white > finalScore.black ? 'winner' : finalScore.white < finalScore.black ? 'loser' : 'tie'}`}>
+                  <div className="score-piece white"></div>
+                  <div className="score-info">
+                    <div className="player-name">{scoreLabel(-1)}</div>
+                    <div className="score-value">{finalScore.white}</div>
+                  </div>
+                </div>
               </div>
-              <div className="score-card">
-                <strong>{scoreLabel(-1)}</strong>
-                <span>{finalScore.white}</span>
+              
+              <div className="score-difference">
+                {winner !== "DRAW" && (
+                  <span>
+                    Won by {Math.abs(finalScore.black - finalScore.white)} piece{Math.abs(finalScore.black - finalScore.white) !== 1 ? 's' : ''}
+                  </span>
+                )}
+                {winner === "DRAW" && <span>Perfect tie!</span>}
               </div>
             </div>
 
-            <div className="actions">
-              <button className="btn primary" onClick={resetGame}>
-                New Game
+            <div className="game-over-actions">
+              <button className="new-game-btn" onClick={resetGame}>
+                <span>Play Again</span>
+                <div className="btn-icon">↻</div>
               </button>
             </div>
           </div>
