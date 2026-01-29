@@ -54,18 +54,19 @@ export default function App() {
   const [player, setPlayer] = useState(1);
   const [validMoves, setValidMoves] = useState(initialValidMoves);
   const [lastMove, setLastMove] = useState(null);
-  const [moves, setMoves] = useState([]); // sequential move history
   const [loading, setLoading] = useState(false);
   const [flippedTiles, setFlippedTiles] = useState([]);
   const [historyViewMode, setHistoryViewMode] = useState(false);
 
   const [mode, setMode] = useState("HUMAN_VS_AI");
   const [humanColor, setHumanColor] = useState(1);
+  const [difficulty, setDifficulty] = useState("medium"); // easy, medium, hard, expert
 
   const [phase, setPhase] = useState("SETUP"); // SETUP | PLAYING | GAME_OVER
   const [winner, setWinner] = useState(null);
   const [finalScore, setFinalScore] = useState(null);
   const [hoveredNodeId, setHoveredNodeId] = useState(null);
+  const moveSoundRef = useRef(null);
 
   // Move tree state
   const moveTreeRef = useRef(new Map());
@@ -74,6 +75,13 @@ export default function App() {
   const aiColor = mode === "HUMAN_VS_AI" ? -humanColor : null;
   const liveScore = countPieces(board);
   const aiRequestIdRef = useRef(0);
+
+  useEffect(() => {
+    const audio = new Audio("/move-self.mp3");
+    audio.preload = "auto";
+    audio.volume = 0.6;
+    moveSoundRef.current = audio;
+  }, []);
 
   function nextMoveTreeNodeId() {
     moveTreeNodeIdRef.current += 1;
@@ -116,7 +124,7 @@ export default function App() {
         const reqId = Date.now();
         aiRequestIdRef.current = reqId;
 
-        const res = await makeAIMove({ board, player });
+        const res = await makeAIMove({ board, player, difficulty });
 
         // if request was cancelled (undo pressed) ignore response
         if (aiRequestIdRef.current !== reqId) {
@@ -157,47 +165,47 @@ export default function App() {
           setCurrentNodeId(nodeId);
           createdNodeId = nodeId;
         }
-        // record AI move if provided
-        if (res.move && typeof res.move.row === "number") {
-          setMoves((m) => [
-            ...m,
-            {
-              nodeId: createdNodeId,
-              player,
-              row: res.move.row,
-              col: res.move.col,
-              source: "AI",
-              board: res.board.map(r => r.slice()),
-              flipped: res.flipped || [],
-              validMoves: normalizeMoves(res.valid_moves),
-              nextPlayer: res.game_over ? null : res.next_player,
-              moveType: "move",
-              score: countPieces(res.board),
-              phase: res.game_over ? "GAME_OVER" : "PLAYING",
-              winner: res.winner ?? null,
-            },
-          ]);
-        } else {
-          // AI pass
-          setMoves((m) => [
-            ...m,
-            {
-              nodeId: createdNodeId,
-              player,
-              row: null,
-              col: null,
-              source: "AI",
-              board: res.board.map(r => r.slice()),
-              flipped: [],
-              validMoves: normalizeMoves(res.valid_moves),
-              nextPlayer: res.game_over ? null : res.next_player,
-              moveType: "pass",
-              score: countPieces(res.board),
-              phase: res.game_over ? "GAME_OVER" : "PLAYING",
-              winner: res.winner ?? null,
-            },
-          ]);
-        }
+        // record AI move if provided - but don't add to moves array
+        // if (res.move && typeof res.move.row === "number") {
+        //   setMoves((m) => [
+        //     ...m,
+        //     {
+        //       nodeId: createdNodeId,
+        //       player,
+        //       row: res.move.row,
+        //       col: res.move.col,
+        //       source: "AI",
+        //       board: res.board.map(r => r.slice()),
+        //       flipped: res.flipped || [],
+        //       validMoves: normalizeMoves(res.valid_moves),
+        //       nextPlayer: res.game_over ? null : res.next_player,
+        //       moveType: "move",
+        //       score: countPieces(res.board),
+        //       phase: res.game_over ? "GAME_OVER" : "PLAYING",
+        //       winner: res.winner ?? null,
+        //     },
+        //   ]);
+        // } else {
+        //   // AI pass
+        //   setMoves((m) => [
+        //     ...m,
+        //     {
+        //       nodeId: createdNodeId,
+        //       player,
+        //       row: null,
+        //       col: null,
+        //       source: "AI",
+        //       board: res.board.map(r => r.slice()),
+        //       flipped: [],
+        //       validMoves: normalizeMoves(res.valid_moves),
+        //       nextPlayer: res.game_over ? null : res.next_player,
+        //       moveType: "pass",
+        //       score: countPieces(res.board),
+        //       phase: res.game_over ? "GAME_OVER" : "PLAYING",
+        //       winner: res.winner ?? null,
+        //     },
+        //   ]);
+        // }
 
         if (res.game_over) {
           const score = countPieces(res.board);
@@ -208,11 +216,29 @@ export default function App() {
           else setWinner("DRAW");
 
           setPhase("GAME_OVER");
+          
+          // Play game over sound
+          if (mode === "HUMAN_VS_AI") {
+            playSound(res.winner === humanColor ? 'win' : 'lose');
+          } else {
+            playSound('gameOver');
+          }
         } else {
           setPlayer(res.next_player);
           setValidMoves(normalizeMoves(res.valid_moves));
           setLastMove(res.move || null);
           setFlippedTiles(res.flipped || []);
+          
+          // Play AI move sound
+          if (res.move && typeof res.move.row === "number") {
+            if (res.flipped && res.flipped.length > 0) {
+              playSound('capture');
+            } else {
+              playSound('move');
+            }
+          } else {
+            playSound('pass');
+          }
         }
       } finally {
         setLoading(false);
@@ -277,24 +303,25 @@ export default function App() {
           passNodeId = nodeId;
         }
 
-        setMoves((m) => [
-          ...m,
-          {
-            nodeId: passNodeId,
-            player,
-            row: null,
-            col: null,
-            source: mode === "HUMAN_VS_AI" && player === aiColor ? "AI" : "HUMAN",
-            board: board.map((r) => r.slice()),
-            flipped: [],
-            validMoves: normalizeMoves(res.valid_moves),
-            nextPlayer,
-            moveType: "pass",
-            score: countPieces(board),
-            phase: "PLAYING",
-            winner: null,
-          },
-        ]);
+        // Don't add to moves array anymore
+        // setMoves((m) => [
+        //   ...m,
+        //   {
+        //     nodeId: passNodeId,
+        //     player,
+        //     row: null,
+        //     col: null,
+        //     source: mode === "HUMAN_VS_AI" && player === aiColor ? "AI" : "HUMAN",
+        //     board: board.map((r) => r.slice()),
+        //     flipped: [],
+        //     validMoves: normalizeMoves(res.valid_moves),
+        //     nextPlayer,
+        //     moveType: "pass",
+        //     score: countPieces(board),
+        //     phase: "PLAYING",
+        //     winner: null,
+        //   },
+        // ]);
 
         setPlayer(nextPlayer);
         setValidMoves(normalizeMoves(res.valid_moves));
@@ -335,8 +362,8 @@ export default function App() {
 
     // If this move already exists in the current branch, just jump to it.
     if (moveTreeRef.current && currentNodeId && moveTreeRef.current.has(currentNodeId)) {
-      const parentNode = moveTreeRef.current.get(currentNodeId);
-      const children = Array.isArray(parentNode?.children) ? parentNode.children : [];
+      const currentNode = moveTreeRef.current.get(currentNodeId);
+      const children = Array.isArray(currentNode?.children) ? currentNode.children : [];
       const existingChildId = children.find((childId) => {
         const node = moveTreeRef.current.get(childId);
         return node && node.player === player && node.row === row && node.col === col;
@@ -360,8 +387,7 @@ export default function App() {
       // --- Move tree: ensure root exists, then record human move as a node ---
       ensureMoveTreeRoot(board);
 
-      const parentIdForHuman =
-        currentNodeId && moveTreeRef.current.has(currentNodeId) ? currentNodeId : "root";
+      const parentIdForHuman = currentNodeId && moveTreeRef.current.has(currentNodeId) ? currentNodeId : "root";
       const parentNodeForHuman = moveTreeRef.current.get(parentIdForHuman);
 
       let createdNodeId = null;
@@ -386,25 +412,25 @@ export default function App() {
         createdNodeId = nodeId;
       }
 
-      // record the human move
-      setMoves((m) => [
-        ...m,
-        {
-          nodeId: createdNodeId,
-          player,
-          row,
-          col,
-          source: "HUMAN",
-          board: res.board.map(r => r.slice()),
-          flipped: res.flipped || [],
-          validMoves: normalizeMoves(res.valid_moves),
-          nextPlayer: res.game_over ? null : res.next_player,
-          moveType: "move",
-          score: countPieces(res.board),
-          phase: res.game_over ? "GAME_OVER" : "PLAYING",
-          winner: res.winner ?? null,
-        },
-      ]);
+      // record the human move - but don't add to moves array, it's only for old UI
+      // setMoves((m) => [
+      //   ...m,
+      //   {
+      //     nodeId: createdNodeId,
+      //     player,
+      //     row,
+      //     col,
+      //     source: "HUMAN",
+      //     board: res.board.map(r => r.slice()),
+      //     flipped: res.flipped || [],
+      //     validMoves: normalizeMoves(res.valid_moves),
+      //     nextPlayer: res.game_over ? null : res.next_player,
+      //     moveType: "move",
+      //     score: countPieces(res.board),
+      //     phase: res.game_over ? "GAME_OVER" : "PLAYING",
+      //     winner: res.winner ?? null,
+      //   },
+      // ]);
 
       if (res.game_over) {
         const score = countPieces(res.board);
@@ -415,11 +441,25 @@ export default function App() {
         else setWinner("DRAW");
 
         setPhase("GAME_OVER");
+        
+        // Play game over sound
+        if (mode === "HUMAN_VS_AI") {
+          playSound(res.winner === humanColor ? 'win' : 'lose');
+        } else {
+          playSound('gameOver');
+        }
       } else {
         setPlayer(res.next_player);
         setValidMoves(normalizeMoves(res.valid_moves));
         setLastMove({ row, col });
         setFlippedTiles(res.flipped || []);
+        
+        // Play move sound
+        if (res.flipped && res.flipped.length > 0) {
+          playSound('capture');
+        } else {
+          playSound('move');
+        }
       }
     } finally {
       setLoading(false);
@@ -502,7 +542,6 @@ export default function App() {
     setFlippedTiles([]);
     setWinner(null);
     setFinalScore(null);
-    setMoves([]);
     setHistoryViewMode(false);
     // cancel any pending AI requests
     if (aiRequestIdRef.current) aiRequestIdRef.current = 0;
@@ -528,7 +567,6 @@ export default function App() {
   function resetGame() {
     setLastMove(null);
     setFlippedTiles([]);
-    setMoves([]);
     setHistoryViewMode(false);
 
     if (aiRequestIdRef.current) aiRequestIdRef.current = 0;
@@ -540,8 +578,8 @@ export default function App() {
 
     if (mode === "HUMAN_VS_AI") {
       return winner === humanColor
-        ? "🎉 You Won!"
-        : "🤖 AI Won — You Lost";
+        ? "You Won!"
+        : "AI Won";
     }
 
     return `${colorName(winner)} Wins`;
@@ -578,50 +616,6 @@ export default function App() {
     return node.player === aiColor ? "AI" : "You";
   }
 
-  function getAncestorDistanceMap(nodeId) {
-    const distances = new Map();
-    if (!nodeId || !moveTreeRef.current || !(moveTreeRef.current instanceof Map)) return distances;
-    if (!moveTreeRef.current.has(nodeId)) return distances;
-
-    let currentId = nodeId;
-    let distance = 0;
-    while (currentId && moveTreeRef.current.has(currentId)) {
-      distances.set(currentId, distance);
-      const node = moveTreeRef.current.get(currentId);
-      if (!node || !node.parentId) break;
-      currentId = node.parentId;
-      distance += 1;
-    }
-    return distances;
-  }
-
-  function getDistanceToCurrent(nodeId, ancestorDistances) {
-    if (!nodeId || !ancestorDistances || ancestorDistances.size === 0) return null;
-    if (!moveTreeRef.current || !(moveTreeRef.current instanceof Map)) return null;
-    if (!moveTreeRef.current.has(nodeId)) return null;
-    if (ancestorDistances.has(nodeId)) return ancestorDistances.get(nodeId);
-
-    let distance = 0;
-    let currentId = nodeId;
-    while (currentId && moveTreeRef.current.has(currentId)) {
-      const node = moveTreeRef.current.get(currentId);
-      const parentId = node && node.parentId ? node.parentId : null;
-      distance += 1;
-      if (parentId && ancestorDistances.has(parentId)) {
-        return distance + ancestorDistances.get(parentId);
-      }
-      currentId = parentId;
-    }
-    return null;
-  }
-
-  function getDistanceClass(nodeId, ancestorDistances) {
-    const distance = getDistanceToCurrent(nodeId, ancestorDistances);
-    if (distance === 0) return " is-active";
-    if (distance === 1) return " is-near";
-    return " is-inactive";
-  }
-
   function computeWinnerFromScore(score) {
     if (!score) return null;
     if (score.black > score.white) return 1;
@@ -629,57 +623,334 @@ export default function App() {
     return "DRAW";
   }
 
-  function getMoveTreeRowsByPly() {
-    if (!moveTreeRef.current || !(moveTreeRef.current instanceof Map)) return [];
-    if (!moveTreeRef.current.has("root")) return [];
-
-    const map = moveTreeRef.current;
-    /** @type {Array<Array<string|null>>} */
-    const lines = [];
-
-    function ensureLine(index) {
-      if (!lines[index]) lines[index] = [];
+  function goToPreviousMove() {
+    if (!currentNodeId || !moveTreeRef.current.has(currentNodeId)) return;
+    const currentNode = moveTreeRef.current.get(currentNodeId);
+    if (currentNode.parentId && moveTreeRef.current.has(currentNode.parentId)) {
+      jumpToNodeId(currentNode.parentId, true);
     }
-
-    function clonePrefix(lineIndex, depth) {
-      const prefix = (lines[lineIndex] || []).slice(0, depth);
-      return prefix;
-    }
-
-    function walk(nodeId, depth, lineIndex) {
-      const node = map.get(nodeId);
-      if (!node) return;
-
-      if (nodeId !== "root") {
-        ensureLine(lineIndex);
-        lines[lineIndex][depth] = nodeId;
-      }
-
-      const children = Array.isArray(node.children) ? node.children : [];
-      if (children.length === 0) return;
-
-      const [firstChild, ...restChildren] = children;
-      walk(firstChild, depth + 1, lineIndex);
-
-      for (const childId of restChildren) {
-        const newLineIndex = lines.length;
-        lines[newLineIndex] = clonePrefix(lineIndex, depth + 1);
-        walk(childId, depth + 1, newLineIndex);
-      }
-    }
-
-    walk("root", -1, 0);
-
-    const maxDepth = lines.reduce((max, line) => Math.max(max, line.length), 0);
-    /** @type {Array<Array<string|null>>} */
-    const rows = [];
-
-    for (let depth = 0; depth < maxDepth; depth += 1) {
-      rows[depth] = lines.map((line) => line[depth] ?? null);
-    }
-
-    return rows;
   }
+
+  function goToNextMove() {
+    if (!currentNodeId || !moveTreeRef.current.has(currentNodeId)) return;
+    const currentNode = moveTreeRef.current.get(currentNodeId);
+    if (currentNode.children.length > 0) {
+      // Go to first child (main line)
+      jumpToNodeId(currentNode.children[0], true);
+    }
+  }
+
+  function goToParentMove() {
+    goToPreviousMove(); // Same as previous move
+  }
+
+  function goToFirstChild() {
+    if (!currentNodeId || !moveTreeRef.current.has(currentNodeId)) return;
+    const currentNode = moveTreeRef.current.get(currentNodeId);
+    if (currentNode.children.length > 1) {
+      // Go to second child (first branch)
+      jumpToNodeId(currentNode.children[1], true);
+    }
+  }
+
+  function goToLastMove() {
+    if (!moveTreeRef.current.has("root")) return;
+    
+    // Find the deepest node in the main line
+    let currentId = "root";
+    while (true) {
+      const node = moveTreeRef.current.get(currentId);
+      if (!node || node.children.length === 0) break;
+      currentId = node.children[0]; // Follow main line
+    }
+    
+    if (currentId !== "root") {
+      jumpToNodeId(currentId, true);
+    }
+  }
+
+  // Save/Load game functionality
+  function saveGame() {
+    try {
+      const gameData = {
+        moveTree: Array.from(moveTreeRef.current.entries()),
+        currentNodeId: currentNodeId,
+        gameInfo: {
+          mode: mode,
+          humanColor: humanColor,
+          difficulty: difficulty,
+          phase: phase,
+          winner: winner,
+          finalScore: finalScore,
+          timestamp: new Date().toISOString(),
+          version: "1.0"
+        }
+      };
+      
+      const gameId = `othello-game-${Date.now()}`;
+      localStorage.setItem(gameId, JSON.stringify(gameData));
+      
+      // Also save to a list of saved games
+      const savedGames = JSON.parse(localStorage.getItem('othello-saved-games') || '[]');
+      savedGames.push({
+        id: gameId,
+        timestamp: gameData.gameInfo.timestamp,
+        mode: gameData.gameInfo.mode,
+        phase: gameData.gameInfo.phase,
+        moveCount: gameData.moveTree.length - 1 // Exclude root
+      });
+      localStorage.setItem('othello-saved-games', JSON.stringify(savedGames));
+      
+      // Show success message (you can replace with a toast notification)
+      alert('Game saved successfully!');
+      
+      return gameId;
+    } catch (error) {
+      console.error('Failed to save game:', error);
+      alert('Failed to save game. Please try again.');
+    }
+  }
+
+  function loadGame(gameId) {
+    try {
+      const gameData = JSON.parse(localStorage.getItem(gameId));
+      if (!gameData) {
+        alert('Game not found!');
+        return;
+      }
+
+      // Restore move tree
+      moveTreeRef.current = new Map(gameData.moveTree);
+      
+      // Restore game state
+      setCurrentNodeId(gameData.currentNodeId);
+      setMode(gameData.gameInfo.mode);
+      setHumanColor(gameData.gameInfo.humanColor);
+      setDifficulty(gameData.gameInfo.difficulty || "medium");
+      setPhase(gameData.gameInfo.phase);
+      setWinner(gameData.gameInfo.winner);
+      setFinalScore(gameData.gameInfo.finalScore);
+      
+      // Jump to the current position to restore board state
+      if (gameData.currentNodeId && moveTreeRef.current.has(gameData.currentNodeId)) {
+        jumpToNodeId(gameData.currentNodeId, false);
+      }
+      
+      alert('Game loaded successfully!');
+    } catch (error) {
+      console.error('Failed to load game:', error);
+      alert('Failed to load game. The save file may be corrupted.');
+    }
+  }
+
+  function getSavedGames() {
+    try {
+      return JSON.parse(localStorage.getItem('othello-saved-games') || '[]');
+    } catch (error) {
+      console.error('Failed to get saved games:', error);
+      return [];
+    }
+  }
+
+  function deleteSavedGame(gameId) {
+    try {
+      localStorage.removeItem(gameId);
+      const savedGames = getSavedGames().filter(game => game.id !== gameId);
+      localStorage.setItem('othello-saved-games', JSON.stringify(savedGames));
+    } catch (error) {
+      console.error('Failed to delete saved game:', error);
+    }
+  }
+
+  // Sound effects
+  const playSound = (soundType) => {
+    try {
+      if (soundType === "move" || soundType === "capture" || soundType === "pass") {
+        const moveAudio = moveSoundRef.current;
+        if (moveAudio) {
+          moveAudio.currentTime = 0;
+          const playPromise = moveAudio.play();
+          if (playPromise && typeof playPromise.catch === "function") {
+            playPromise.catch(() => {});
+          }
+          return;
+        }
+      }
+
+      const audioContext = new (window.AudioContext || window.webkitAudioContext)();
+      
+      // Chess-like sound effects
+      const sounds = {
+        move: { 
+          frequencies: [800, 600], 
+          duration: 0.08, 
+          type: 'sine',
+          envelope: 'quick'
+        },
+        capture: { 
+          frequencies: [1200, 800, 400], 
+          duration: 0.12, 
+          type: 'square',
+          envelope: 'sharp'
+        },
+        pass: { 
+          frequencies: [400, 300], 
+          duration: 0.15, 
+          type: 'triangle',
+          envelope: 'soft'
+        },
+        gameOver: { 
+          frequencies: [523, 659, 784], // C-E-G chord
+          duration: 0.6, 
+          type: 'sine',
+          envelope: 'long'
+        },
+        win: { 
+          frequencies: [523, 659, 784, 1047], // C-E-G-C chord
+          duration: 0.8, 
+          type: 'sine',
+          envelope: 'celebration'
+        },
+        lose: { 
+          frequencies: [392, 311, 262], // G-Eb-C descending
+          duration: 0.7, 
+          type: 'triangle',
+          envelope: 'sad'
+        }
+      };
+      
+      const sound = sounds[soundType];
+      if (!sound) return;
+      
+      // Create multiple oscillators for chord-like sounds
+      sound.frequencies.forEach((frequency, index) => {
+        const oscillator = audioContext.createOscillator();
+        const gainNode = audioContext.createGain();
+        
+        oscillator.connect(gainNode);
+        gainNode.connect(audioContext.destination);
+        
+        oscillator.frequency.setValueAtTime(frequency, audioContext.currentTime);
+        oscillator.type = sound.type;
+        
+        // Different envelope shapes for different sounds
+        const startTime = audioContext.currentTime + (index * 0.02); // Slight delay for chord effect
+        const volume = 0.05 / sound.frequencies.length; // Reduce volume for multiple oscillators
+        
+        switch(sound.envelope) {
+          case 'quick':
+            gainNode.gain.setValueAtTime(0, startTime);
+            gainNode.gain.linearRampToValueAtTime(volume, startTime + 0.01);
+            gainNode.gain.exponentialRampToValueAtTime(0.001, startTime + sound.duration);
+            break;
+          case 'sharp':
+            gainNode.gain.setValueAtTime(volume * 1.5, startTime);
+            gainNode.gain.exponentialRampToValueAtTime(0.001, startTime + sound.duration);
+            break;
+          case 'soft':
+            gainNode.gain.setValueAtTime(0, startTime);
+            gainNode.gain.linearRampToValueAtTime(volume * 0.8, startTime + 0.03);
+            gainNode.gain.linearRampToValueAtTime(0.001, startTime + sound.duration);
+            break;
+          case 'long':
+            gainNode.gain.setValueAtTime(0, startTime);
+            gainNode.gain.linearRampToValueAtTime(volume, startTime + 0.1);
+            gainNode.gain.linearRampToValueAtTime(volume * 0.7, startTime + sound.duration * 0.7);
+            gainNode.gain.exponentialRampToValueAtTime(0.001, startTime + sound.duration);
+            break;
+          case 'celebration':
+            gainNode.gain.setValueAtTime(0, startTime);
+            gainNode.gain.linearRampToValueAtTime(volume, startTime + 0.05);
+            gainNode.gain.linearRampToValueAtTime(volume * 0.8, startTime + sound.duration * 0.8);
+            gainNode.gain.exponentialRampToValueAtTime(0.001, startTime + sound.duration);
+            break;
+          case 'sad':
+            gainNode.gain.setValueAtTime(0, startTime);
+            gainNode.gain.linearRampToValueAtTime(volume * 0.9, startTime + 0.1);
+            gainNode.gain.linearRampToValueAtTime(0.001, startTime + sound.duration);
+            break;
+        }
+        
+        oscillator.start(startTime);
+        oscillator.stop(startTime + sound.duration);
+      });
+      
+    } catch (error) {
+      // Silently fail if audio is not supported
+      console.log('Audio not supported or failed:', error);
+    }
+  };
+
+  useEffect(() => {
+    const handleKeyPress = (e) => {
+      // Only handle keyboard navigation when not in input fields
+      if (e.target.tagName === 'INPUT' || e.target.tagName === 'TEXTAREA') return;
+      
+      switch(e.key) {
+        case 'ArrowLeft':
+          e.preventDefault();
+          goToPreviousMove();
+          break;
+        case 'ArrowRight':
+          e.preventDefault();
+          goToNextMove();
+          break;
+        case 'ArrowUp':
+          e.preventDefault();
+          goToParentMove();
+          break;
+        case 'ArrowDown':
+          e.preventDefault();
+          goToFirstChild();
+          break;
+        case 'Home':
+          e.preventDefault();
+          jumpToNodeId("root", true);
+          break;
+        case 'End':
+          e.preventDefault();
+          goToLastMove();
+          break;
+        case 's':
+          if (e.ctrlKey || e.metaKey) {
+            e.preventDefault();
+            saveGame();
+          }
+          break;
+        case 'l':
+          if (e.ctrlKey || e.metaKey) {
+            e.preventDefault();
+            const savedGames = getSavedGames();
+            if (savedGames.length > 0) {
+              const mostRecent = savedGames[savedGames.length - 1];
+              if (confirm(`Load game from ${new Date(mostRecent.timestamp).toLocaleString()}?`)) {
+                loadGame(mostRecent.id);
+              }
+            } else {
+              alert('No saved games found!');
+            }
+          }
+          break;
+        case 'z':
+          if (e.ctrlKey || e.metaKey) {
+            e.preventDefault();
+            undoMove();
+          }
+          break;
+        case 'n':
+          if (e.ctrlKey || e.metaKey) {
+            e.preventDefault();
+            if (confirm('Start a new game? Current progress will be lost.')) {
+              resetGame();
+            }
+          }
+          break;
+      }
+    };
+
+    window.addEventListener('keydown', handleKeyPress);
+    return () => window.removeEventListener('keydown', handleKeyPress);
+  }, [currentNodeId]);
 
   function jumpToNodeId(nodeId, fromHistory = false) {
     if (!nodeId) return;
@@ -744,47 +1015,94 @@ export default function App() {
         className={`status-bar${phase === "SETUP" ? " status-bar--placeholder" : ""}`}
         aria-hidden={phase === "SETUP"}
       >
-          <div className="status-left">
-            <div className="mode-label">
-              Mode: <strong>{mode === "HUMAN_VS_AI" ? "Human vs AI" : "Human vs Human"}</strong>
+        <div className="status-content">
+          <div className="game-info">
+            <div className="mode-display">
+              <span className="mode-text">{mode === "HUMAN_VS_AI" ? "Human vs AI" : "Human vs Human"}</span>
             </div>
-
-            <div className="live-score">
-              <div className="score-pill black-pill">
-                <span className="dot" />
-                <span className="label">{scoreLabel(1)}</span>
-                <span className="value">{liveScore.black}</span>
-              </div>
-
-              <div className="score-pill white-pill">
-                <span className="dot" />
-                <span className="label">{scoreLabel(-1)}</span>
-                <span className="value">{liveScore.white}</span>
+            
+            <div className="turn-display">
+              <span className="turn-label">Turn:</span>
+              <div className="current-player">
+                <span className={`player-dot ${player === 1 ? 'black' : 'white'}`} />
+                <span className="player-name">{colorName(player)}</span>
               </div>
             </div>
           </div>
 
-          <div className="status-right">
-            <div className="turn-label">
-              Turn: <strong>{colorName(player)}</strong>
+          <div className="score-display">
+            <div className="score-item black-score">
+              <span className="score-dot black" />
+              <span className="score-label">{scoreLabel(1)}</span>
+              <span className="score-value">{liveScore.black}</span>
             </div>
-            <div style={{ display: "flex", gap: 8, alignItems: "center" }}>
-              <button className="reset-btn" onClick={resetGame}>
-                Reset
+            
+            <div className="score-separator">vs</div>
+            
+            <div className="score-item white-score">
+              <span className="score-dot white" />
+              <span className="score-label">{scoreLabel(-1)}</span>
+              <span className="score-value">{liveScore.white}</span>
+            </div>
+          </div>
+
+          <div className="game-controls">
+            <div className="control-group">
+              <button className="control-btn save-btn" onClick={saveGame} title="Save Game (Ctrl+S)">
+                <svg className="btn-icon" viewBox="0 0 24 24" aria-hidden="true" focusable="false">
+                  <path d="M12 3v10" />
+                  <path d="M8 9l4 4 4-4" />
+                  <path d="M5 17v3h14v-3" />
+                </svg>
+                <span className="btn-text">Save</span>
               </button>
+              <button className="control-btn load-btn" onClick={() => {
+                const savedGames = getSavedGames();
+                if (savedGames.length === 0) {
+                  alert('No saved games found!');
+                  return;
+                }
+                
+                const mostRecent = savedGames[savedGames.length - 1];
+                if (confirm(`Load game from ${new Date(mostRecent.timestamp).toLocaleString()}?`)) {
+                  loadGame(mostRecent.id);
+                }
+              }} title="Load Game (Ctrl+L)">
+                <svg className="btn-icon" viewBox="0 0 24 24" aria-hidden="true" focusable="false">
+                  <path d="M12 21V11" />
+                  <path d="M8 15l4-4 4 4" />
+                  <path d="M5 7v-3h14v3" />
+                </svg>
+                <span className="btn-text">Load</span>
+              </button>
+            </div>
+            
+            <div className="control-group">
               <button
-                className="reset-btn"
+                className="control-btn undo-btn"
                 onClick={undoMove}
                 disabled={currentNodeId === "root"}
-                title={currentNodeId !== "root" ? "Undo last move" : "No moves to undo"}
+                title={currentNodeId !== "root" ? "Undo Move (Ctrl+Z)" : "No moves to undo"}
               >
-                Undo
+                <svg className="btn-icon" viewBox="0 0 24 24" aria-hidden="true" focusable="false">
+                  <path d="M9 7l-4 4 4 4" />
+                  <path d="M5 11h8a6 6 0 1 1 0 12H9" />
+                </svg>
+                <span className="btn-text">Undo</span>
+              </button>
+              <button className="control-btn reset-btn" onClick={resetGame} title="New Game (Ctrl+N)">
+                <svg className="btn-icon" viewBox="0 0 24 24" aria-hidden="true" focusable="false">
+                  <path d="M20 12a8 8 0 1 1-2.4-5.7" />
+                  <path d="M20 4v6h-6" />
+                </svg>
+                <span className="btn-text">Reset</span>
               </button>
             </div>
           </div>
+        </div>
       </div>
 
-      <div className={`game-area ${moves.length === 0 ? 'no-history' : ''}`}>
+      <div className={`game-area ${!moveTreeRef.current || !moveTreeRef.current.has("root") || moveTreeRef.current.get("root").children.length === 0 ? 'no-history' : ''}`}>
         <div className="board-panel">
           <Board
             board={board}
@@ -799,190 +1117,154 @@ export default function App() {
         </div>
 
         {/* ---------- MOVE HISTORY ---------- */}
-        <div className={`move-history ${moves.length === 0 ? 'hidden' : ''}`}>
+        <div className={`move-history ${!moveTreeRef.current || !moveTreeRef.current.has("root") || moveTreeRef.current.get("root").children.length === 0 ? 'hidden' : ''}`}>
           <div className="move-history-header">
             <h3>Move History</h3>
+            <div className="keyboard-shortcuts">
+              <small>Use ← → ↑ ↓ keys to navigate</small>
+            </div>
+            {currentNodeId && currentNodeId !== "root" && (
+              <div className="current-path">
+                {(() => {
+                  const path = [];
+                  let nodeId = currentNodeId;
+                  while (nodeId && moveTreeRef.current.has(nodeId)) {
+                    const node = moveTreeRef.current.get(nodeId);
+                    if (node.id !== "root") {
+                      path.unshift(node);
+                    }
+                    nodeId = node.parentId;
+                  }
+                  return (
+                    <span className="path-indicator">
+                      Move {Math.ceil(path.length / 2)} 
+                      {path.length > 0 && ` • ${colorName(path[path.length - 1].player)}`}
+                    </span>
+                  );
+                })()}
+              </div>
+            )}
           </div>
           {(() => {
-            const ancestorDistances = getAncestorDistanceMap(currentNodeId);
-
-            if (mode === "HUMAN_VS_AI") {
-              const firstMover = moves[0]?.player ?? humanColor;
-              const leftColor = firstMover;
-              const rightColor = firstMover === 1 ? -1 : 1;
-              /** @type {Array<{ index: number, left: any, right: any }>} */
-              const turns = [];
-              let currentTurn = null;
-
-              for (const move of moves) {
-                const isLeftMove = move.player === leftColor;
-                const slotTaken = isLeftMove ? currentTurn?.left : currentTurn?.right;
-
-                if (!currentTurn || slotTaken) {
-                  currentTurn = { index: turns.length + 1, left: null, right: null };
-                  turns.push(currentTurn);
-                }
-
-                if (isLeftMove) currentTurn.left = move;
-                else currentTurn.right = move;
-              }
-
-              if (turns.length === 0) {
-                return (
-                  <div className="moves-variations-empty">
-                    <div className="muted">No moves yet</div>
-                  </div>
-                );
-              }
-
+            if (!moveTreeRef.current || !moveTreeRef.current.has("root")) {
               return (
-                <div className="move-turns" role="table" aria-label="Move turns">
-                  {turns.map((turn) => {
-                    const isCurrentRow =
-                      (turn.left && turn.left.nodeId === currentNodeId) ||
-                      (turn.right && turn.right.nodeId === currentNodeId);
-
-                    return (
-                    <div
-                      key={turn.index}
-                      className={`move-turn-row${isCurrentRow ? ' is-current' : ''}`}
-                      role="row"
-                    >
-                      <div className="move-turn-index" role="cell">
-                        {turn.index}
-                      </div>
-
-                      <div className="move-turn-cells" role="cell">
-                        {["left", "right"].map((slot) => {
-                          const entry = turn[slot];
-                          if (!entry) {
-                            return (
-                              <div
-                                key={`${turn.index}-${slot}-empty`}
-                                className="move-turn-cell empty"
-                                aria-hidden="true"
-                              />
-                            );
-                          }
-
-                          const label = moveLabelFromMove(entry);
-                          const isHovered = entry.nodeId && entry.nodeId === hoveredNodeId;
-                          const stateClass = getDistanceClass(entry.nodeId, ancestorDistances);
-
-                          const cellContent = (
-                            <>
-                              <span className={entry.player === 1 ? 'pill black-pill' : 'pill white-pill'} />
-                              <span className="move-turn-text">{label}</span>
-                            </>
-                          );
-
-                          if (!entry.nodeId) {
-                            return (
-                              <div key={`${turn.index}-${slot}`} className={`move-turn-cell${stateClass}`}>
-                                {cellContent}
-                              </div>
-                            );
-                          }
-
-                          return (
-                            <button
-                              key={`${turn.index}-${slot}`}
-                              type="button"
-                              className={`move-turn-cell${stateClass}${isHovered ? ' is-hovered' : ''}`}
-                              onClick={() => jumpToNodeId(entry.nodeId, true)}
-                              onMouseEnter={() => setHoveredNodeId(entry.nodeId)}
-                              onMouseLeave={() => setHoveredNodeId(null)}
-                              onFocus={() => setHoveredNodeId(entry.nodeId)}
-                              onBlur={() => setHoveredNodeId(null)}
-                              title={label}
-                            >
-                              {cellContent}
-                            </button>
-                          );
-                        })}
-                      </div>
-                    </div>
-                    );
-                  })}
-                </div>
-              );
-            }
-
-            const rows = getMoveTreeRowsByPly();
-            const maxPly = rows.length;
-
-            if (maxPly === 0) {
-              return (
-                <div className="moves-variations-empty">
+                <div className="move-tree-empty">
                   <div className="muted">No moves yet</div>
                 </div>
               );
             }
 
-            return (
-              <div className="moves-variations" role="table" aria-label="Move variations">
-                {Array.from({ length: maxPly }, (_, plyIndex) => {
-                  return (
-                  <div
-                    key={plyIndex}
-                    className="moves-variations-row"
-                    role="row"
-                  >
-                    <div className="moves-variations-index" role="cell">
-                      {plyIndex + 1}
-                    </div>
+            const rootNode = moveTreeRef.current.get("root");
+            if (!rootNode || rootNode.children.length === 0) {
+              return (
+                <div className="move-tree-empty">
+                  <div className="muted">No moves yet</div>
+                </div>
+              );
+            }
 
-                    <div className="moves-variations-cells" role="cell">
-                      {(rows[plyIndex] || []).map((nodeId, optionIndex) => {
-                        if (!nodeId) {
-                          return (
-                            <div
-                              key={`${plyIndex}-${optionIndex}-empty`}
-                              className="moves-variations-cell empty"
-                              aria-hidden="true"
-                            />
-                          );
-                        }
-
-                        if (!moveTreeRef.current.has(nodeId)) return null;
-
-                        const node = moveTreeRef.current.get(nodeId);
-                        const label = moveLabelFromNode(node);
-                        const meta = nodeMetaLabel(node);
-                        const isHovered = nodeId === hoveredNodeId;
-                        const stateClass = getDistanceClass(nodeId, ancestorDistances);
-                        const rowNodeIds = rows[plyIndex] || [];
-                        const labelCounts = new Map();
-                        for (const id of rowNodeIds) {
-                          if (!id || !moveTreeRef.current.has(id)) continue;
-                          const rowNode = moveTreeRef.current.get(id);
-                          const rowLabel = moveLabelFromNode(rowNode);
-                          labelCounts.set(rowLabel, (labelCounts.get(rowLabel) || 0) + 1);
-                        }
-                        const isDuplicateLabel = (labelCounts.get(label) || 0) > 1;
-
-                        return (
-                          <button
-                            key={`${plyIndex}-${optionIndex}-${nodeId}`}
-                            type="button"
-                            className={`moves-variations-cell${stateClass}${isHovered ? ' is-hovered' : ''}${isDuplicateLabel ? ' is-duplicate-label' : ''}`}
-                            onClick={() => jumpToNodeId(nodeId, true)}
-                            onMouseEnter={() => setHoveredNodeId(nodeId)}
-                            onMouseLeave={() => setHoveredNodeId(null)}
-                            onFocus={() => setHoveredNodeId(nodeId)}
-                            onBlur={() => setHoveredNodeId(null)}
-                            title={meta ? `${label} (${meta})` : label}
-                          >
-                            <span className={node.player === 1 ? 'pill black-pill' : 'pill white-pill'} />
-                            <span className="moves-variations-text">{label}</span>
-                            {meta && <span className="moves-variations-meta">{meta}</span>}
-                          </button>
-                        );
-                      })}
-                    </div>
+            function renderMoveTree(nodeId, depth = 0, isBranch = false) {
+              if (!nodeId || !moveTreeRef.current.has(nodeId)) return null;
+              
+              const node = moveTreeRef.current.get(nodeId);
+              if (!node || node.id === "root") {
+                // Render root's children - all are main line initially
+                return (
+                  <div className="move-tree-root">
+                    {node.children.map((childId) => 
+                      renderMoveTree(childId, 0, false)
+                    )}
                   </div>
-                  );
-                })}
+                );
+              }
+
+              const isActive = currentNodeId === node.id;
+              const isHovered = hoveredNodeId === node.id;
+              const hasMultipleChildren = node.children.length > 1;
+              const moveLabel = moveLabelFromNode(node);
+              const isPass = node.row === null || node.col === null;
+              
+              // Calculate sequential move number for Othello
+              let moveNumber = 0;
+              let currentId = node.id;
+              while (currentId && moveTreeRef.current.has(currentId)) {
+                const currentNode = moveTreeRef.current.get(currentId);
+                if (currentNode.parentId) {
+                  moveNumber++;
+                }
+                currentId = currentNode.parentId;
+              }
+              const displayMoveNumber = moveNumber;
+
+              const result = [];
+
+              // Render this move
+              result.push(
+                <div key={node.id} className={`move-tree-node depth-${depth} ${isBranch ? 'branch-line' : 'main-line'}`}>
+                  <div className="move-node-content">
+                    {depth > 0 && <div className="branch-connector" />}
+                    
+                    <button
+                      type="button"
+                      className={`move-btn ${isActive ? 'active' : ''} ${isHovered ? 'hovered' : ''} ${isPass ? 'pass-move' : ''}`}
+                      onClick={() => jumpToNodeId(node.id, true)}
+                      onMouseEnter={() => setHoveredNodeId(node.id)}
+                      onMouseLeave={() => setHoveredNodeId(null)}
+                      title={isPass ? `${colorName(node.player)} passes` : `${colorName(node.player)} plays ${moveLabel}`}
+                    >
+                      <span className="move-number">{displayMoveNumber}.</span>
+                      <span className={`player-indicator ${node.player === 1 ? 'black' : 'white'}`} />
+                      <span className="move-text">
+                        {isPass ? 'pass' : moveLabel}
+                      </span>
+                      {hasMultipleChildren && (
+                        <span className="branch-indicator" title={`${node.children.length} variations`}>
+                          ({node.children.length})
+                        </span>
+                      )}
+                      {/* Show piece count change */}
+                      {!isPass && node.flipped && node.flipped.length > 0 && (
+                        <span className="capture-count" title={`Flipped ${node.flipped.length} pieces`}>
+                          +{node.flipped.length}
+                        </span>
+                      )}
+                    </button>
+                  </div>
+                </div>
+              );
+
+              // If this node has children, we need to handle them specially
+              if (node.children.length > 0) {
+                // Sort children by creation time to maintain order
+                const sortedChildren = [...node.children].sort((a, b) => {
+                  const nodeA = moveTreeRef.current.get(a);
+                  const nodeB = moveTreeRef.current.get(b);
+                  // Extract numeric part from node IDs (n1, n2, etc.)
+                  const idA = parseInt(nodeA.id.substring(1));
+                  const idB = parseInt(nodeB.id.substring(1));
+                  return idA - idB;
+                });
+
+                // First child continues the main line
+                const [mainChild, ...branchChildren] = sortedChildren;
+                
+                // Render branch children first (they appear right after this move)
+                branchChildren.forEach(childId => {
+                  result.push(renderMoveTree(childId, depth + 1, true));
+                });
+                
+                // Then render main line continuation
+                if (mainChild) {
+                  result.push(renderMoveTree(mainChild, depth, false));
+                }
+              }
+
+              return result;
+            }
+
+            return (
+              <div className="move-tree-container">
+                {renderMoveTree("root")}
               </div>
             );
           })()}
@@ -1022,6 +1304,16 @@ export default function App() {
                 <div className="color-choices">
                   <button type="button" className={humanColor===1?"btn color active":"btn color"} onClick={() => setHumanColor(1)}>Black</button>
                   <button type="button" className={humanColor===-1?"btn color active":"btn color"} onClick={() => setHumanColor(-1)}>White</button>
+                </div>
+              </label>
+
+              <label className={`difficulty-block ${mode === "HUMAN_VS_AI" ? 'visible' : 'collapsed'}`}>
+                <span>AI Difficulty</span>
+                <div className="difficulty-choices">
+                  <button type="button" className={difficulty==="easy"?"btn difficulty active":"btn difficulty"} onClick={() => setDifficulty("easy")}>Easy</button>
+                  <button type="button" className={difficulty==="medium"?"btn difficulty active":"btn difficulty"} onClick={() => setDifficulty("medium")}>Medium</button>
+                  <button type="button" className={difficulty==="hard"?"btn difficulty active":"btn difficulty"} onClick={() => setDifficulty("hard")}>Hard</button>
+                  <button type="button" className={difficulty==="expert"?"btn difficulty active":"btn difficulty"} onClick={() => setDifficulty("expert")}>Expert</button>
                 </div>
               </label>
             </div>

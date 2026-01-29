@@ -90,12 +90,15 @@ export default function Board({
                 ? "preview-piece black"
                 : "preview-piece white";
 
+            // Enhanced highlighting for history navigation
+            let cellClass = "cell";
+            if (isLastMove) cellClass += " last-move-cell";
+            if (flipped) cellClass += " flipped-cell";
+
             return (
               <div
                 key={`${r}-${c}`}
-                className={`cell ${
-                  isLastMove || flipped ? "last-move-cell" : ""
-                }`}
+                className={cellClass}
                 onClick={() => onCellClick(r, c)}
               >
                 {cell !== 0 && <div className={pieceClass} />}
