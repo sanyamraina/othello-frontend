@@ -1286,3 +1286,389 @@ body {
 .overlay-card.game-over .actions {
   margin-top: 14px;
 }
+/* ---------- EXPORT MODAL ---------- */
+
+.export-modal {
+  width: min(520px, 92vw);
+  padding: 28px 32px;
+  border-radius: 16px;
+  border: 1px solid rgba(255, 255, 255, 0.06);
+  box-shadow: 0 18px 55px rgba(0, 0, 0, 0.62), inset 0 1px 0 rgba(255,255,255,0.03);
+}
+
+.export-modal h2 {
+  margin-bottom: 8px;
+  letter-spacing: 0.2px;
+}
+
+.export-modal .muted {
+  margin-bottom: 24px;
+  color: rgba(235,247,240,0.75);
+}
+
+.export-options {
+  display: flex;
+  flex-direction: column;
+  gap: 20px;
+  margin-bottom: 24px;
+}
+
+.export-option {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.export-btn {
+  display: flex;
+  align-items: center;
+  gap: 16px;
+  padding: 16px 20px;
+  background: rgba(255, 255, 255, 0.04);
+  border: 1px solid rgba(255, 255, 255, 0.08);
+  border-radius: 12px;
+  color: rgba(235, 247, 240, 0.95);
+  cursor: pointer;
+  transition: all 0.2s ease;
+  text-align: left;
+  width: 100%;
+}
+
+.export-btn:hover {
+  background: rgba(255, 255, 255, 0.08);
+  border-color: rgba(255, 255, 255, 0.15);
+  transform: translateY(-1px);
+  box-shadow: 0 4px 16px rgba(0, 0, 0, 0.3);
+}
+
+.export-icon {
+  font-size: 24px;
+  width: 40px;
+  height: 40px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: rgba(255, 255, 255, 0.06);
+  border-radius: 8px;
+  flex-shrink: 0;
+}
+
+.export-details {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
+.export-details strong {
+  font-size: 16px;
+  font-weight: 600;
+  color: rgba(255, 255, 255, 0.95);
+}
+
+.export-details small {
+  font-size: 13px;
+  color: rgba(235, 247, 240, 0.7);
+  font-weight: 500;
+}
+
+.export-format {
+  font-size: 11px;
+  color: rgba(235, 247, 240, 0.5);
+  font-weight: 600;
+  letter-spacing: 0.3px;
+  margin-top: 2px;
+}
+
+.export-description {
+  padding-left: 56px;
+  color: rgba(235, 247, 240, 0.6);
+  font-size: 12px;
+  line-height: 1.4;
+}
+
+.export-description p {
+  margin: 0 0 4px 0;
+}
+
+.export-description strong {
+  color: rgba(235, 247, 240, 0.8);
+}
+
+.analysis-export:hover {
+  border-color: rgba(33, 150, 243, 0.4);
+}
+
+.analysis-export:hover .export-icon {
+  background: rgba(33, 150, 243, 0.15);
+}
+
+.record-export:hover {
+  border-color: rgba(76, 175, 80, 0.4);
+}
+
+.record-export:hover .export-icon {
+  background: rgba(76, 175, 80, 0.15);
+}
+
+.btn.secondary {
+  background: rgba(255, 255, 255, 0.04);
+  border: 1px solid rgba(255, 255, 255, 0.08);
+  color: rgba(235, 247, 240, 0.8);
+  padding: 8px 16px;
+  border-radius: 8px;
+  cursor: pointer;
+  font-weight: 600;
+  transition: all 0.2s ease;
+}
+
+.btn.secondary:hover {
+  background: rgba(255, 255, 255, 0.08);
+  border-color: rgba(255, 255, 255, 0.15);
+  color: rgba(255, 255, 255, 0.9);
+}
+
+/* ---------- AI STATUS PANEL ---------- */
+
+.ai-status-panel {
+  margin-top: 16px;
+  display: flex;
+  justify-content: center;
+  width: 100%;
+}
+
+.ai-status-card {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 16px 20px;
+  border-radius: 16px;
+  backdrop-filter: blur(10px);
+  border: none;
+  box-shadow: none;
+  background: transparent;
+  min-width: 320px;
+  max-width: 400px;
+  transition: all 0.3s cubic-bezier(0.4, 0, 0.2, 1);
+}
+
+.ai-status-card.thinking {
+  background: transparent;
+  border: none;
+}
+
+.ai-status-card.paused {
+  background: transparent;
+  border: none;
+}
+
+.ai-status-card.cancelled {
+  background: transparent;
+  border: none;
+}
+
+@keyframes spin {
+  0% { transform: rotate(0deg); }
+  100% { transform: rotate(360deg); }
+}
+
+.ai-status-content {
+  display: flex;
+  align-items: center;
+  gap: 16px;
+  flex: 1;
+  min-width: 0; /* Allow text to shrink */
+  margin-right: 16px; /* Space between content and button */
+}
+
+.ai-status-icon {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 48px;
+  height: 48px;
+  border-radius: 12px;
+  background: rgba(255, 255, 255, 0.1);
+  backdrop-filter: blur(5px);
+}
+
+.ai-status-card.thinking .ai-status-icon {
+  background: rgba(33, 150, 243, 0.2);
+}
+
+.ai-status-card.paused .ai-status-icon {
+  background: rgba(76, 175, 80, 0.2);
+}
+
+.ai-status-card.cancelled .ai-status-icon {
+  background: rgba(156, 39, 176, 0.2);
+}
+
+.ai-spinner {
+  width: 24px;
+  height: 24px;
+  border: 3px solid rgba(33, 150, 243, 0.3);
+  border-top: 3px solid rgba(33, 150, 243, 1);
+  border-radius: 50%;
+  animation: spin 1s linear infinite;
+}
+
+.ai-pause-icon,
+.ai-cancel-icon {
+  width: 24px;
+  height: 24px;
+  color: currentColor;
+}
+
+.ai-status-card.paused .ai-pause-icon {
+  color: rgba(76, 175, 80, 1);
+}
+
+.ai-status-card.cancelled .ai-cancel-icon {
+  color: rgba(156, 39, 176, 1);
+}
+
+.ai-status-text {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  min-width: 0; /* Allow text to shrink */
+  flex: 1;
+}
+
+.ai-status-title {
+  font-size: 16px;
+  font-weight: 600;
+  color: rgba(255, 255, 255, 0.95);
+  line-height: 1.2;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.ai-status-subtitle {
+  font-size: 13px;
+  font-weight: 500;
+  color: rgba(255, 255, 255, 0.7);
+  line-height: 1.3;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.ai-action-btn {
+  padding: 10px 16px;
+  border-radius: 10px;
+  font-size: 14px;
+  font-weight: 600;
+  cursor: pointer;
+  transition: all 0.2s cubic-bezier(0.4, 0, 0.2, 1);
+  border: none;
+  backdrop-filter: blur(5px);
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  min-width: 80px;
+  justify-content: center;
+  flex-shrink: 0; /* Prevent button from shrinking */
+}
+
+.ai-action-btn:hover {
+  transform: translateY(-1px);
+  box-shadow: 0 4px 16px rgba(0, 0, 0, 0.2);
+}
+
+.ai-action-btn:active {
+  transform: translateY(0);
+}
+
+.start-btn {
+  background: linear-gradient(135deg, rgba(76, 175, 80, 0.8), rgba(76, 175, 80, 0.6));
+  color: rgba(255, 255, 255, 0.95);
+  border: 1px solid rgba(76, 175, 80, 0.4);
+}
+
+.start-btn:hover {
+  background: linear-gradient(135deg, rgba(76, 175, 80, 0.9), rgba(76, 175, 80, 0.7));
+  border-color: rgba(76, 175, 80, 0.6);
+}
+
+.cancel-btn {
+  background: linear-gradient(135deg, rgba(244, 67, 54, 0.8), rgba(244, 67, 54, 0.6));
+  color: rgba(255, 255, 255, 0.95);
+  border: 1px solid rgba(244, 67, 54, 0.4);
+}
+
+.cancel-btn:hover {
+  background: linear-gradient(135deg, rgba(244, 67, 54, 0.9), rgba(244, 67, 54, 0.7));
+  border-color: rgba(244, 67, 54, 0.6);
+}
+
+/* Responsive design for AI status panel */
+@media (max-width: 768px) {
+  .ai-status-card {
+    min-width: 280px;
+    padding: 12px 16px;
+    flex-direction: column;
+    gap: 12px;
+    text-align: center;
+  }
+  
+  .ai-status-content {
+    justify-content: center;
+    gap: 12px;
+  }
+  
+  .ai-status-icon {
+    width: 40px;
+    height: 40px;
+  }
+  
+  .ai-spinner {
+    width: 20px;
+    height: 20px;
+    border-width: 2px;
+  }
+  
+  .ai-pause-icon,
+  .ai-cancel-icon {
+    width: 20px;
+    height: 20px;
+  }
+  
+  .ai-status-title {
+    font-size: 15px;
+  }
+  
+  .ai-status-subtitle {
+    font-size: 12px;
+  }
+  
+  .ai-action-btn {
+    padding: 8px 14px;
+    font-size: 13px;
+    min-width: 70px;
+  }
+}
+
+/* Responsive adjustments for export modal */
+@media (max-width: 600px) {
+  .export-modal {
+    padding: 20px 24px;
+  }
+  
+  .export-btn {
+    padding: 12px 16px;
+    gap: 12px;
+  }
+  
+  .export-icon {
+    width: 32px;
+    height: 32px;
+    font-size: 20px;
+  }
+  
+  .export-description {
+    padding-left: 44px;
+  }
+}

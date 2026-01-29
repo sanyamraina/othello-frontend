@@ -66,6 +66,7 @@ export default function App() {
   const [winner, setWinner] = useState(null);
   const [finalScore, setFinalScore] = useState(null);
   const [hoveredNodeId, setHoveredNodeId] = useState(null);
+  const [showExportModal, setShowExportModal] = useState(false);
   const moveSoundRef = useRef(null);
 
   // Move tree state
@@ -75,6 +76,31 @@ export default function App() {
   const aiColor = mode === "HUMAN_VS_AI" ? -humanColor : null;
   const liveScore = countPieces(board);
   const aiRequestIdRef = useRef(0);
+
+  // AI State Management
+  const [aiState, setAiState] = useState('idle'); // 'idle' | 'thinking' | 'paused' | 'cancelled'
+  const abortControllerRef = useRef(null);
+
+  // Auto-load game on component mount
+  useEffect(() => {
+    const didAutoLoad = autoLoadGame();
+    if (!didAutoLoad) {
+      // No autosave found, start fresh
+      ensureMoveTreeRoot(initialBoard);
+      setCurrentNodeId("root");
+    }
+  }, []);
+
+  // Auto-save game state whenever it changes (debounced)
+  useEffect(() => {
+    if (phase === "SETUP") return; // Don't autosave during setup
+    
+    const timeoutId = setTimeout(() => {
+      autoSaveGame();
+    }, 1000); // Debounce autosave by 1 second
+
+    return () => clearTimeout(timeoutId);
+  }, [board, player, currentNodeId, phase, mode, humanColor, difficulty, winner, finalScore, aiState]);
 
   useEffect(() => {
     const audio = new Audio("/move-self.mp3");
@@ -117,22 +143,48 @@ export default function App() {
     if (player !== aiColor) return;
     if (loading) return;
     if (historyViewMode) return;
+    if (aiState === 'paused') return; // Don't auto-start when paused
+    if (aiState === 'thinking') return; // Already thinking
 
     (async () => {
       try {
         setLoading(true);
+        setAiState('thinking');
+        
+        // Create abort controller for this request
+        const controller = new AbortController();
+        abortControllerRef.current = controller;
+        
         const reqId = Date.now();
         aiRequestIdRef.current = reqId;
 
-        const res = await makeAIMove({ board, player, difficulty });
+        const res = await makeAIMove({ 
+          board, 
+          player, 
+          difficulty,
+          signal: controller.signal 
+        });
 
-        // if request was cancelled (undo pressed) ignore response
+        // Check again immediately after the request completes
         if (aiRequestIdRef.current !== reqId) {
           aiRequestIdRef.current = 0;
+          abortControllerRef.current = null;
+          setLoading(false);
+          return;
+        }
+
+        // if request was cancelled (undo pressed or cancel clicked) ignore response
+        if (aiRequestIdRef.current !== reqId || aiState === 'paused') {
+          aiRequestIdRef.current = 0;
+          abortControllerRef.current = null;
+          setLoading(false);
           return;
         }
 
         aiRequestIdRef.current = 0;
+        abortControllerRef.current = null;
+        setAiState('idle');
+        setLoading(false); // Make sure loading is set to false here
 
         setBoard(res.board);
 
@@ -240,11 +292,21 @@ export default function App() {
             playSound('pass');
           }
         }
+      } catch (error) {
+        // Handle abort gracefully
+        if (error.name === 'AbortError' || aiRequestIdRef.current === 0) {
+          console.log('AI request was cancelled');
+          setAiState('paused'); // Show "AI interrupted" instead of "AI cancelled"
+        } else {
+          console.error('AI move failed:', error);
+          setAiState('idle');
+        }
       } finally {
         setLoading(false);
+        abortControllerRef.current = null;
       }
     })();
-  }, [board, player, phase, mode, aiColor, loading, historyViewMode]);
+  }, [board, player, phase, mode, aiColor, loading, historyViewMode, aiState]);
 
   // ---------- NEW GAME OVER CHECK ----------
 
@@ -377,8 +439,15 @@ export default function App() {
     try {
       setLoading(true);
 
-      // cancel any pending AI request (if user plays while AI was pending)
-      if (aiRequestIdRef.current) aiRequestIdRef.current = 0;
+      // Cancel any pending AI request and reset AI state when human plays
+      if (aiRequestIdRef.current || aiState === 'thinking') {
+        if (abortControllerRef.current) {
+          abortControllerRef.current.abort();
+          abortControllerRef.current = null;
+        }
+        aiRequestIdRef.current = 0;
+      }
+      setAiState('idle'); // Reset AI state when human makes a move
 
       const res = await makeMove({ board, player, row, col });
 
@@ -467,8 +536,15 @@ export default function App() {
   }
 
   function undoMove() {
-    // If an AI request is pending, cancel it (keep existing cancellation behavior)
-    if (aiRequestIdRef.current) aiRequestIdRef.current = 0;
+    // Cancel any pending AI request and set to paused state
+    if (aiRequestIdRef.current || aiState === 'thinking') {
+      if (abortControllerRef.current) {
+        abortControllerRef.current.abort();
+        abortControllerRef.current = null;
+      }
+      aiRequestIdRef.current = 0;
+    }
+    
     if (historyViewMode) setHistoryViewMode(false);
 
     if (!moveTreeRef.current || !(moveTreeRef.current instanceof Map)) return;
@@ -494,13 +570,18 @@ export default function App() {
     if (!targetNode) return;
 
     const restoredBoard = targetNode.boardAfter.map((r) => r.slice());
+    const restoredPlayer = targetNode.nextPlayer ?? 1;
 
     setCurrentNodeId(targetNodeId);
     setBoard(restoredBoard);
-
-    // Restore player as the side to move at this position
-    const restoredPlayer = targetNode.nextPlayer ?? 1;
     setPlayer(restoredPlayer);
+
+    // Set AI state appropriately after undo
+    if (mode === "HUMAN_VS_AI" && restoredPlayer === aiColor) {
+      setAiState('paused'); // Show "Continue AI" option after undo to AI turn
+    } else {
+      setAiState('idle'); // Human turn or not AI mode
+    }
 
     setLastMove(
       targetNode.row !== null && targetNode.col !== null
@@ -535,6 +616,9 @@ export default function App() {
   }
 
   function startGame() {
+    // Clear autosave when starting a new game
+    clearAutoSave();
+    
     setBoard(initialBoard);
     setPlayer(1);
     setValidMoves(initialValidMoves);
@@ -543,8 +627,15 @@ export default function App() {
     setWinner(null);
     setFinalScore(null);
     setHistoryViewMode(false);
-    // cancel any pending AI requests
-    if (aiRequestIdRef.current) aiRequestIdRef.current = 0;
+    
+    // Reset AI state
+    if (abortControllerRef.current) {
+      abortControllerRef.current.abort();
+      abortControllerRef.current = null;
+    }
+    aiRequestIdRef.current = 0;
+    setAiState('idle');
+    
     setPhase("PLAYING");
     // --- Move tree: initialize root node ---
     moveTreeNodeIdRef.current = 0;
@@ -565,11 +656,21 @@ export default function App() {
   }
 
   function resetGame() {
+    // Clear autosave when resetting
+    clearAutoSave();
+    
     setLastMove(null);
     setFlippedTiles([]);
     setHistoryViewMode(false);
 
-    if (aiRequestIdRef.current) aiRequestIdRef.current = 0;
+    // Reset AI state
+    if (abortControllerRef.current) {
+      abortControllerRef.current.abort();
+      abortControllerRef.current = null;
+    }
+    aiRequestIdRef.current = 0;
+    setAiState('idle');
+    
     setPhase("SETUP");
   }
 
@@ -647,9 +748,9 @@ export default function App() {
   function goToFirstChild() {
     if (!currentNodeId || !moveTreeRef.current.has(currentNodeId)) return;
     const currentNode = moveTreeRef.current.get(currentNodeId);
-    if (currentNode.children.length > 1) {
-      // Go to second child (first branch)
-      jumpToNodeId(currentNode.children[1], true);
+    if (currentNode.children.length > 0) {
+      // Go to first child
+      jumpToNodeId(currentNode.children[0], true);
     }
   }
 
@@ -669,8 +770,108 @@ export default function App() {
     }
   }
 
-  // Save/Load game functionality
-  function saveGame() {
+  // Resume AI function
+  function resumeAI() {
+    setHistoryViewMode(false); // Exit history view mode
+    setAiState('idle'); // This will trigger the AI useEffect to run
+  }
+
+  // Cancel AI function
+  function cancelAI() {
+    // Use the same reliable cancellation mechanism as undo
+    if (aiRequestIdRef.current) {
+      aiRequestIdRef.current = 0; // This will cause the AI response to be ignored
+    }
+    
+    if (abortControllerRef.current) {
+      abortControllerRef.current.abort();
+      abortControllerRef.current = null;
+    }
+    
+    // Set to paused state to show "AI interrupted" message
+    setAiState('paused');
+    setLoading(false);
+  }
+
+  // AUTOSAVE functionality - automatically saves/restores game state
+  function autoSaveGame() {
+    try {
+      const gameData = {
+        moveTree: Array.from(moveTreeRef.current.entries()),
+        currentNodeId: currentNodeId,
+        gameInfo: {
+          mode: mode,
+          humanColor: humanColor,
+          difficulty: difficulty,
+          phase: phase,
+          winner: winner,
+          finalScore: finalScore,
+          aiState: aiState, // Include AI state in autosave
+          timestamp: new Date().toISOString(),
+          version: "1.0"
+        }
+      };
+      
+      localStorage.setItem('othello-autosave', JSON.stringify(gameData));
+    } catch (error) {
+      console.error('Failed to autosave game:', error);
+    }
+  }
+
+  function autoLoadGame() {
+    try {
+      const savedData = localStorage.getItem('othello-autosave');
+      if (!savedData) return false;
+
+      const gameData = JSON.parse(savedData);
+      if (!gameData || !gameData.moveTree || !gameData.gameInfo) return false;
+
+      // Restore move tree
+      moveTreeRef.current = new Map(gameData.moveTree);
+      
+      // Restore game state
+      setCurrentNodeId(gameData.currentNodeId);
+      setMode(gameData.gameInfo.mode);
+      setHumanColor(gameData.gameInfo.humanColor);
+      setDifficulty(gameData.gameInfo.difficulty || "medium");
+      setPhase(gameData.gameInfo.phase);
+      setWinner(gameData.gameInfo.winner);
+      setFinalScore(gameData.gameInfo.finalScore);
+      
+      // Handle AI state restoration for reload scenario
+      const savedAiState = gameData.gameInfo.aiState || 'idle';
+      const wasAiThinking = savedAiState === 'thinking';
+      
+      // Set AI state first
+      if (wasAiThinking) {
+        // AI was thinking when page closed - pause it and let user decide
+        setAiState('paused');
+      } else {
+        setAiState(savedAiState);
+      }
+      
+      // Jump to the current position to restore board state, preserving AI state
+      if (gameData.currentNodeId && moveTreeRef.current.has(gameData.currentNodeId)) {
+        jumpToNodeId(gameData.currentNodeId, false, true); // preserveAiState = true
+      }
+      
+      return true;
+    } catch (error) {
+      console.error('Failed to autoload game:', error);
+      return false;
+    }
+  }
+
+  function clearAutoSave() {
+    try {
+      localStorage.removeItem('othello-autosave');
+    } catch (error) {
+      console.error('Failed to clear autosave:', error);
+    }
+  }
+
+  // Export functionality - two different export types
+  function exportAnalysisFile() {
     try {
       const gameData = {
         moveTree: Array.from(moveTreeRef.current.entries()),
@@ -683,32 +884,245 @@ export default function App() {
           winner: winner,
           finalScore: finalScore,
           timestamp: new Date().toISOString(),
-          version: "1.0"
+          version: "1.0",
+          exportType: "analysis"
         }
       };
       
-      const gameId = `othello-game-${Date.now()}`;
-      localStorage.setItem(gameId, JSON.stringify(gameData));
+      const jsonString = JSON.stringify(gameData, null, 2);
+      const blob = new Blob([jsonString], { type: 'application/json' });
+      const url = URL.createObjectURL(blob);
       
-      // Also save to a list of saved games
-      const savedGames = JSON.parse(localStorage.getItem('othello-saved-games') || '[]');
-      savedGames.push({
-        id: gameId,
-        timestamp: gameData.gameInfo.timestamp,
-        mode: gameData.gameInfo.mode,
-        phase: gameData.gameInfo.phase,
-        moveCount: gameData.moveTree.length - 1 // Exclude root
-      });
-      localStorage.setItem('othello-saved-games', JSON.stringify(savedGames));
+      const a = document.createElement('a');
+      a.href = url;
+      a.download = `othello-analysis-${new Date().toISOString().slice(0, 19).replace(/:/g, '-')}.json`;
+      document.body.appendChild(a);
+      a.click();
+      document.body.removeChild(a);
+      URL.revokeObjectURL(url);
       
-      // Show success message (you can replace with a toast notification)
-      alert('Game saved successfully!');
-      
-      return gameId;
     } catch (error) {
-      console.error('Failed to save game:', error);
-      alert('Failed to save game. Please try again.');
+      console.error('Failed to export analysis file:', error);
+      alert('Failed to export analysis file. Please try again.');
     }
+  }
+
+  function exportGameRecord() {
+    try {
+      const mainLine = extractMainLine();
+      const wofNotation = convertToWOFNotation(mainLine);
+      
+      const blob = new Blob([wofNotation], { type: 'text/plain' });
+      const url = URL.createObjectURL(blob);
+      
+      const a = document.createElement('a');
+      a.href = url;
+      a.download = `othello-game-${new Date().toISOString().slice(0, 19).replace(/:/g, '-')}.wof`;
+      document.body.appendChild(a);
+      a.click();
+      document.body.removeChild(a);
+      URL.revokeObjectURL(url);
+      
+    } catch (error) {
+      console.error('Failed to export game record:', error);
+      alert('Failed to export game record. Please try again.');
+    }
+  }
+
+  function extractMainLine() {
+    const mainLine = [];
+    if (!moveTreeRef.current || !moveTreeRef.current.has("root")) return mainLine;
+    
+    let currentId = "root";
+    while (currentId && moveTreeRef.current.has(currentId)) {
+      const node = moveTreeRef.current.get(currentId);
+      if (node.id !== "root") {
+        mainLine.push({
+          player: node.player,
+          row: node.row,
+          col: node.col,
+          moveNumber: Math.ceil(mainLine.length / 2) + 1
+        });
+      }
+      
+      // Follow main line (first child)
+      if (node.children && node.children.length > 0) {
+        currentId = node.children[0];
+      } else {
+        break;
+      }
+    }
+    
+    return mainLine;
+  }
+
+  function convertToWOFNotation(mainLine) {
+    const files = ["a", "b", "c", "d", "e", "f", "g", "h"];
+    
+    let wofString = `; Othello Game Record\n`;
+    wofString += `; Exported: ${new Date().toISOString()}\n`;
+    wofString += `; Mode: ${mode}\n`;
+    if (mode === "HUMAN_VS_AI") {
+      wofString += `; Human: ${colorName(humanColor)}\n`;
+      wofString += `; AI Difficulty: ${difficulty}\n`;
+    }
+    wofString += `;\n`;
+    
+    let moveNumber = 1;
+    for (let i = 0; i < mainLine.length; i++) {
+      const move = mainLine[i];
+      
+      if (i % 2 === 0) {
+        wofString += `${moveNumber}. `;
+      }
+      
+      if (move.row === null || move.col === null) {
+        wofString += "pass";
+      } else {
+        wofString += `${files[move.col]}${move.row + 1}`;
+      }
+      
+      if (i % 2 === 0) {
+        wofString += " ";
+      } else {
+        wofString += "\n";
+        moveNumber++;
+      }
+    }
+    
+    // Handle odd number of moves
+    if (mainLine.length % 2 === 1) {
+      wofString += "\n";
+    }
+    
+    if (finalScore) {
+      wofString += `\n; Final Score: Black ${finalScore.black} - White ${finalScore.white}\n`;
+      if (winner === 1) wofString += `; Winner: Black\n`;
+      else if (winner === -1) wofString += `; Winner: White\n`;
+      else if (winner === "DRAW") wofString += `; Result: Draw\n`;
+    }
+    
+    return wofString;
+  }
+
+  // Load analysis file functionality
+  function loadAnalysisFile(event) {
+    const file = event.target.files[0];
+    if (!file) return;
+    
+    // Validate file type
+    if (!file.name.toLowerCase().endsWith('.json') && file.type !== 'application/json') {
+      alert('Please select a valid JSON analysis file (.json)');
+      event.target.value = '';
+      return;
+    }
+    
+    const reader = new FileReader();
+    reader.onload = (e) => {
+      try {
+        const gameData = JSON.parse(e.target.result);
+        
+        // Enhanced compatibility validation
+        if (!isValidAnalysisFile(gameData)) {
+          alert('Invalid or incompatible analysis file format!\n\nPlease ensure you are loading a valid Othello analysis file (.json) exported from this application.');
+          return;
+        }
+
+        // Restore move tree
+        moveTreeRef.current = new Map(gameData.moveTree);
+        
+        // Restore game state
+        setCurrentNodeId(gameData.currentNodeId);
+        setMode(gameData.gameInfo.mode);
+        setHumanColor(gameData.gameInfo.humanColor);
+        setDifficulty(gameData.gameInfo.difficulty || "medium");
+        setPhase(gameData.gameInfo.phase);
+        setWinner(gameData.gameInfo.winner);
+        setFinalScore(gameData.gameInfo.finalScore);
+        
+        // Jump to the current position to restore board state
+        if (gameData.currentNodeId && moveTreeRef.current.has(gameData.currentNodeId)) {
+          jumpToNodeId(gameData.currentNodeId, false);
+        }
+        
+        alert('Analysis file loaded successfully!');
+      } catch (error) {
+        console.error('Failed to load analysis file:', error);
+        if (error instanceof SyntaxError) {
+          alert('Failed to load analysis file.\n\nThis is not a valid JSON file.');
+        } else {
+          alert('Failed to load analysis file.\n\nThe file may be corrupted or incompatible.');
+        }
+      }
+    };
+    reader.readAsText(file);
+    
+    // Reset file input
+    event.target.value = '';
+  }
+
+  function isValidAnalysisFile(gameData) {
+    // Check basic structure
+    if (!gameData || typeof gameData !== 'object') return false;
+    if (!gameData.moveTree || !Array.isArray(gameData.moveTree)) return false;
+    if (!gameData.gameInfo || typeof gameData.gameInfo !== 'object') return false;
+    
+    // Check version compatibility
+    if (gameData.gameInfo.version && gameData.gameInfo.version !== "1.0") {
+      alert(`Warning: This file was created with version ${gameData.gameInfo.version}. Current version is 1.0.\n\nLoading may not work correctly.`);
+    }
+    
+    // Check export type (should be analysis file)
+    if (gameData.gameInfo.exportType && gameData.gameInfo.exportType !== "analysis") {
+      return false;
+    }
+    
+    // Validate move tree structure
+    try {
+      const moveTreeMap = new Map(gameData.moveTree);
+      
+      // Must have root node
+      if (!moveTreeMap.has("root")) return false;
+      
+      const rootNode = moveTreeMap.get("root");
+      if (!rootNode || typeof rootNode !== 'object') return false;
+      
+      // Validate root node structure
+      const requiredRootFields = ['id', 'boardAfter', 'nextPlayer', 'validMovesNext', 'parentId', 'children'];
+      for (const field of requiredRootFields) {
+        if (!(field in rootNode)) return false;
+      }
+      
+      // Validate board structure in root
+      if (!Array.isArray(rootNode.boardAfter) || rootNode.boardAfter.length !== 8) return false;
+      for (const row of rootNode.boardAfter) {
+        if (!Array.isArray(row) || row.length !== 8) return false;
+        for (const cell of row) {
+          if (typeof cell !== 'number' || (cell !== -1 && cell !== 0 && cell !== 1)) return false;
+        }
+      }
+      
+      // Validate currentNodeId exists in move tree
+      if (gameData.currentNodeId && !moveTreeMap.has(gameData.currentNodeId)) return false;
+      
+      // Validate game info fields
+      const validModes = ["HUMAN_VS_AI", "HUMAN_VS_HUMAN"];
+      if (gameData.gameInfo.mode && !validModes.includes(gameData.gameInfo.mode)) return false;
+      
+      const validDifficulties = ["easy", "medium", "hard", "expert"];
+      if (gameData.gameInfo.difficulty && !validDifficulties.includes(gameData.gameInfo.difficulty)) return false;
+      
+      const validPhases = ["SETUP", "PLAYING", "GAME_OVER"];
+      if (gameData.gameInfo.phase && !validPhases.includes(gameData.gameInfo.phase)) return false;
+      
+      if (gameData.gameInfo.humanColor && (gameData.gameInfo.humanColor !== 1 && gameData.gameInfo.humanColor !== -1)) return false;
+      
+    } catch (error) {
+      console.error('Move tree validation failed:', error);
+      return false;
+    }
+    
+    return true;
   }
 
   function loadGame(gameId) {
@@ -914,21 +1328,15 @@ export default function App() {
         case 's':
           if (e.ctrlKey || e.metaKey) {
             e.preventDefault();
-            saveGame();
+            setShowExportModal(true);
           }
           break;
         case 'l':
           if (e.ctrlKey || e.metaKey) {
             e.preventDefault();
-            const savedGames = getSavedGames();
-            if (savedGames.length > 0) {
-              const mostRecent = savedGames[savedGames.length - 1];
-              if (confirm(`Load game from ${new Date(mostRecent.timestamp).toLocaleString()}?`)) {
-                loadGame(mostRecent.id);
-              }
-            } else {
-              alert('No saved games found!');
-            }
+            // Trigger file input click for loading analysis files
+            const fileInput = document.querySelector('input[type="file"][accept*=".json"]');
+            if (fileInput) fileInput.click();
           }
           break;
         case 'z':
@@ -952,13 +1360,19 @@ export default function App() {
     return () => window.removeEventListener('keydown', handleKeyPress);
   }, [currentNodeId]);
 
-  function jumpToNodeId(nodeId, fromHistory = false) {
+  function jumpToNodeId(nodeId, fromHistory = false, preserveAiState = false) {
     if (!nodeId) return;
     if (!moveTreeRef.current || !(moveTreeRef.current instanceof Map)) return;
     if (!moveTreeRef.current.has(nodeId)) return;
 
-    // cancel any pending AI and stop any loading UI
-    if (aiRequestIdRef.current) aiRequestIdRef.current = 0;
+    // Cancel any pending AI and stop any loading UI
+    if (aiRequestIdRef.current || aiState === 'thinking') {
+      if (abortControllerRef.current) {
+        abortControllerRef.current.abort();
+        abortControllerRef.current = null;
+      }
+      aiRequestIdRef.current = 0;
+    }
     setLoading(false);
 
     const node = moveTreeRef.current.get(nodeId);
@@ -976,6 +1390,19 @@ export default function App() {
       node.row !== null && node.col !== null ? { row: node.row, col: node.col } : null
     );
     setFlippedTiles(Array.isArray(node.flipped) ? node.flipped : []);
+
+    // Set AI state based on whose turn it is and how we got here (unless preserving state)
+    if (!preserveAiState && mode === "HUMAN_VS_AI" && jumpedPlayer === aiColor) {
+      if (fromHistory) {
+        // When navigating via history (arrows/clicking), always pause to show "Continue AI" option
+        setAiState('paused');
+      } else {
+        // When navigating programmatically (like after making a move), let AI continue normally
+        setAiState('idle');
+      }
+    } else if (!preserveAiState && mode === "HUMAN_VS_AI" && jumpedPlayer !== aiColor) {
+      setAiState('idle'); // Human turn, AI is idle
+    }
 
     // Prefer the stored valid moves for this node/branch.
     // Fallback to backend only if missing.
@@ -1048,33 +1475,28 @@ export default function App() {
 
           <div className="game-controls">
             <div className="control-group">
-              <button className="control-btn save-btn" onClick={saveGame} title="Save Game (Ctrl+S)">
+              <button className="control-btn save-btn" onClick={() => setShowExportModal(true)} title="Export Game">
                 <svg className="btn-icon" viewBox="0 0 24 24" aria-hidden="true" focusable="false">
                   <path d="M12 3v10" />
                   <path d="M8 9l4 4 4-4" />
                   <path d="M5 17v3h14v-3" />
                 </svg>
-                <span className="btn-text">Save</span>
+                <span className="btn-text">Export</span>
               </button>
-              <button className="control-btn load-btn" onClick={() => {
-                const savedGames = getSavedGames();
-                if (savedGames.length === 0) {
-                  alert('No saved games found!');
-                  return;
-                }
-                
-                const mostRecent = savedGames[savedGames.length - 1];
-                if (confirm(`Load game from ${new Date(mostRecent.timestamp).toLocaleString()}?`)) {
-                  loadGame(mostRecent.id);
-                }
-              }} title="Load Game (Ctrl+L)">
+              <label className="control-btn load-btn" title="Load Analysis File">
                 <svg className="btn-icon" viewBox="0 0 24 24" aria-hidden="true" focusable="false">
                   <path d="M12 21V11" />
                   <path d="M8 15l4-4 4 4" />
                   <path d="M5 7v-3h14v3" />
                 </svg>
-                <span className="btn-text">Load</span>
-              </button>
+                <span className="btn-text">Import</span>
+                <input 
+                  type="file" 
+                  accept=".json,application/json" 
+                  onChange={loadAnalysisFile}
+                  style={{ display: 'none' }}
+                />
+              </label>
             </div>
             
             <div className="control-group">
@@ -1113,7 +1535,71 @@ export default function App() {
             currentPlayer={player}
           />
 
-          {loading && phase === "PLAYING" && <p>Thinking…</p>}
+          {/* AI Status Panel */}
+          {mode === "HUMAN_VS_AI" && phase === "PLAYING" && player === aiColor && (
+            <div className="ai-status-panel">
+              {aiState === 'thinking' && (
+                <div className="ai-status-card thinking">
+                  <div className="ai-status-content">
+                    <div className="ai-status-icon">
+                      <div className="ai-spinner"></div>
+                    </div>
+                    <div className="ai-status-text">
+                      <div className="ai-status-title">AI is thinking...</div>
+                      <div className="ai-status-subtitle">Analyzing the best move</div>
+                    </div>
+                  </div>
+                  <button className="ai-action-btn cancel-btn" onClick={cancelAI}>
+                    Cancel
+                  </button>
+                </div>
+              )}
+              {(aiState === 'paused' || (aiState === 'idle' && historyViewMode)) && (
+                <div className="ai-status-card paused">
+                  <div className="ai-status-content">
+                    <div className="ai-status-icon">
+                      <svg className="ai-pause-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+                        <circle cx="12" cy="12" r="10"/>
+                        <path d="M10 15l4-4-4-4"/>
+                      </svg>
+                    </div>
+                    <div className="ai-status-text">
+                      <div className="ai-status-title">AI interrupted</div>
+                      <div className="ai-status-subtitle">Ready to continue when you are</div>
+                    </div>
+                  </div>
+                  <button className="ai-action-btn start-btn" onClick={resumeAI}>
+                    Start AI
+                  </button>
+                </div>
+              )}
+              {aiState === 'cancelled' && (
+                <div className="ai-status-card cancelled">
+                  <div className="ai-status-content">
+                    <div className="ai-status-icon">
+                      <svg className="ai-cancel-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+                        <circle cx="12" cy="12" r="10"/>
+                        <path d="15 9l-6 6"/>
+                        <path d="9 9l6 6"/>
+                      </svg>
+                    </div>
+                    <div className="ai-status-text">
+                      <div className="ai-status-title">AI stopped</div>
+                      <div className="ai-status-subtitle">Your turn - make a move or restart AI</div>
+                    </div>
+                  </div>
+                  <button className="ai-action-btn start-btn" onClick={resumeAI}>
+                    Start AI
+                  </button>
+                </div>
+              )}
+            </div>
+          )}
+
+          {/* Only show "Thinking..." for human moves in human vs human mode */}
+          {loading && phase === "PLAYING" && mode === "HUMAN_VS_HUMAN" && (
+            <p>Thinking…</p>
+          )}
         </div>
 
         {/* ---------- MOVE HISTORY ---------- */}
@@ -1320,6 +1806,66 @@ export default function App() {
 
             <div className="actions">
               <button className="btn primary" onClick={startGame}>Start Game</button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* ---------- EXPORT MODAL ---------- */}
+      {showExportModal && (
+        <div className="overlay">
+          <div className="overlay-card export-modal">
+            <h2>Export Game</h2>
+            <p className="muted">Choose your export format</p>
+
+            <div className="export-options">
+              <div className="export-option">
+                <button 
+                  className="btn export-btn analysis-export" 
+                  onClick={() => {
+                    exportAnalysisFile();
+                    setShowExportModal(false);
+                  }}
+                >
+                  <div className="export-icon">📊</div>
+                  <div className="export-details">
+                    <strong>Analysis File</strong>
+                    <small>Complete game state with all branches</small>
+                    <div className="export-format">JSON • App-specific • Lossless</div>
+                  </div>
+                </button>
+                <div className="export-description">
+                  <p>Exports everything: move tree, branches, current position, and metadata.</p>
+                  <p><strong>Use for:</strong> Resuming analysis, exploring variations</p>
+                </div>
+              </div>
+
+              <div className="export-option">
+                <button 
+                  className="btn export-btn record-export" 
+                  onClick={() => {
+                    exportGameRecord();
+                    setShowExportModal(false);
+                  }}
+                >
+                  <div className="export-icon">📝</div>
+                  <div className="export-details">
+                    <strong>Game Record</strong>
+                    <small>Main line only in WOF notation</small>
+                    <div className="export-format">Text • Standard • Linear</div>
+                  </div>
+                </button>
+                <div className="export-description">
+                  <p>Exports only the main game line in standard notation (d3, c4, etc.).</p>
+                  <p><strong>Use for:</strong> Sharing, importing to other tools, archival</p>
+                </div>
+              </div>
+            </div>
+
+            <div className="actions">
+              <button className="btn secondary" onClick={() => setShowExportModal(false)}>
+                Cancel
+              </button>
             </div>
           </div>
         </div>
