@@ -67,6 +67,7 @@ export default function App() {
   const [finalScore, setFinalScore] = useState(null);
   const [hoveredNodeId, setHoveredNodeId] = useState(null);
   const [showExportModal, setShowExportModal] = useState(false);
+  const [showMobileSidebar, setShowMobileSidebar] = useState(false);
   const moveSoundRef = useRef(null);
 
   // Move tree state
@@ -100,7 +101,7 @@ export default function App() {
     }, 1000); // Debounce autosave by 1 second
 
     return () => clearTimeout(timeoutId);
-  }, [board, player, currentNodeId, phase, mode, humanColor, difficulty, winner, finalScore, aiState]);
+  }, [board, player, currentNodeId, phase, mode, humanColor, difficulty, winner, finalScore]);
 
   useEffect(() => {
     const audio = new Audio("/move-self.mp3");
@@ -138,55 +139,96 @@ export default function App() {
 
   // ---------- AI MOVE ----------
   useEffect(() => {
-    if (phase !== "PLAYING") return;
-    if (mode !== "HUMAN_VS_AI") return;
-    if (player !== aiColor) return;
-    if (loading) return;
-    if (historyViewMode) return;
-    if (aiState === 'paused') return; // Don't auto-start when paused
-    if (aiState === 'thinking') return; // Already thinking
+    console.log('AI useEffect triggered:', { phase, mode, player, aiColor, loading, historyViewMode, aiState });
+    
+    if (phase !== "PLAYING") {
+      console.log('AI useEffect: Not playing phase');
+      return;
+    }
+    if (mode !== "HUMAN_VS_AI") {
+      console.log('AI useEffect: Not AI mode');
+      return;
+    }
+    if (player !== aiColor) {
+      console.log('AI useEffect: Not AI turn');
+      return;
+    }
+    if (loading) {
+      console.log('AI useEffect: Loading');
+      return;
+    }
+    if (historyViewMode) {
+      console.log('AI useEffect: History view mode');
+      return;
+    }
+    if (aiState === 'paused') {
+      console.log('AI useEffect: AI paused');
+      return;
+    }
+    if (aiState === 'thinking') {
+      console.log('AI useEffect: AI already thinking');
+      return;
+    }
 
-    (async () => {
-      try {
-        setLoading(true);
-        setAiState('thinking');
-        
-        // Create abort controller for this request
-        const controller = new AbortController();
-        abortControllerRef.current = controller;
-        
-        const reqId = Date.now();
-        aiRequestIdRef.current = reqId;
+    console.log('AI useEffect: Starting AI move with delay...');
 
-        const res = await makeAIMove({ 
-          board, 
-          player, 
-          difficulty,
-          signal: controller.signal 
-        });
+    // Add a small delay to prevent race conditions on page load
+    const timeoutId = setTimeout(() => {
+      console.log('AI useEffect: Timeout executed, double-checking conditions...');
+      
+      // Double-check conditions after timeout
+      if (phase !== "PLAYING" || mode !== "HUMAN_VS_AI" || player !== aiColor) {
+        console.log('AI useEffect: Conditions changed, aborting');
+        return;
+      }
+      if (loading || historyViewMode || aiState === 'paused' || aiState === 'thinking') {
+        console.log('AI useEffect: State changed, aborting');
+        return;
+      }
 
-        // Check again immediately after the request completes
-        if (aiRequestIdRef.current !== reqId) {
+      console.log('AI useEffect: Starting AI request...');
+
+      (async () => {
+        try {
+          setLoading(true);
+          setAiState('thinking');
+          
+          // Create abort controller for this request
+          const controller = new AbortController();
+          abortControllerRef.current = controller;
+          
+          const reqId = Date.now();
+          aiRequestIdRef.current = reqId;
+
+          const res = await makeAIMove({ 
+            board, 
+            player, 
+            difficulty,
+            signal: controller.signal 
+          });
+
+          // Check again immediately after the request completes
+          if (aiRequestIdRef.current !== reqId) {
+            aiRequestIdRef.current = 0;
+            abortControllerRef.current = null;
+            setLoading(false);
+            return;
+          }
+
+          // if request was cancelled (undo pressed or cancel clicked) ignore response
+          if (aiRequestIdRef.current !== reqId || aiState === 'paused') {
+            aiRequestIdRef.current = 0;
+            abortControllerRef.current = null;
+            setLoading(false);
+            return;
+          }
+
           aiRequestIdRef.current = 0;
           abortControllerRef.current = null;
-          setLoading(false);
-          return;
-        }
+          setAiState('idle');
+          setLoading(false); // Make sure loading is set to false here
 
-        // if request was cancelled (undo pressed or cancel clicked) ignore response
-        if (aiRequestIdRef.current !== reqId || aiState === 'paused') {
-          aiRequestIdRef.current = 0;
-          abortControllerRef.current = null;
-          setLoading(false);
-          return;
-        }
-
-        aiRequestIdRef.current = 0;
-        abortControllerRef.current = null;
-        setAiState('idle');
-        setLoading(false); // Make sure loading is set to false here
-
-        setBoard(res.board);
+          setBoard(res.board);
 
         // --- Move tree: ensure root exists, then record AI move OR AI pass as a node ---
         ensureMoveTreeRoot(board);
@@ -199,23 +241,47 @@ export default function App() {
 
         if (parentNodeForAI) {
           const isAIMove = res.move && typeof res.move.row === "number";
-          const nodeId = nextMoveTreeNodeId();
-          const node = {
-            id: nodeId,
-            player,
-            row: isAIMove ? res.move.row : null,
-            col: isAIMove ? res.move.col : null,
-            boardAfter: res.board.map((r) => r.slice()),
-            flipped: res.flipped || [],
-            nextPlayer: res.game_over ? null : res.next_player,
-            validMovesNext: res.game_over ? [] : normalizeMoves(res.valid_moves),
-            parentId: parentNodeForAI.id,
-            children: [],
-          };
-          moveTreeRef.current.set(nodeId, node);
-          parentNodeForAI.children.push(nodeId);
-          setCurrentNodeId(nodeId);
-          createdNodeId = nodeId;
+          
+          // Check if this exact AI move already exists as a child
+          const existingChildId = parentNodeForAI.children.find(childId => {
+            const childNode = moveTreeRef.current.get(childId);
+            if (!childNode || childNode.player !== player) return false;
+            
+            // For regular moves, check row/col match
+            if (isAIMove) {
+              return childNode.row === res.move.row && childNode.col === res.move.col;
+            } else {
+              // For pass moves, check if it's also a pass
+              return childNode.row === null && childNode.col === null;
+            }
+          });
+          
+          if (existingChildId) {
+            // Move already exists, just jump to it
+            console.log('AI move already exists, jumping to existing node:', existingChildId);
+            setCurrentNodeId(existingChildId);
+            createdNodeId = existingChildId;
+          } else {
+            // Create new node for this AI move
+            const nodeId = nextMoveTreeNodeId();
+            const node = {
+              id: nodeId,
+              player,
+              row: isAIMove ? res.move.row : null,
+              col: isAIMove ? res.move.col : null,
+              boardAfter: res.board.map((r) => r.slice()),
+              flipped: res.flipped || [],
+              nextPlayer: res.game_over ? null : res.next_player,
+              validMovesNext: res.game_over ? [] : normalizeMoves(res.valid_moves),
+              parentId: parentNodeForAI.id,
+              children: [],
+            };
+            moveTreeRef.current.set(nodeId, node);
+            parentNodeForAI.children.push(nodeId);
+            setCurrentNodeId(nodeId);
+            createdNodeId = nodeId;
+            console.log('Created new AI move node:', nodeId);
+          }
         }
         // record AI move if provided - but don't add to moves array
         // if (res.move && typeof res.move.row === "number") {
@@ -306,6 +372,9 @@ export default function App() {
         abortControllerRef.current = null;
       }
     })();
+    }, 100); // 100ms delay to prevent race conditions
+
+    return () => clearTimeout(timeoutId);
   }, [board, player, phase, mode, aiColor, loading, historyViewMode, aiState]);
 
   // ---------- NEW GAME OVER CHECK ----------
@@ -415,12 +484,28 @@ export default function App() {
 
   async function handleCellClick(row, col) 
   {
-    if (phase !== "PLAYING" || loading) return;
-    if (mode === "HUMAN_VS_AI" && player === aiColor) return;
-    if (historyViewMode) setHistoryViewMode(false);
+    console.log('Cell clicked:', row, col, { phase, loading, mode, player, aiColor, historyViewMode });
+    
+    if (phase !== "PLAYING" || loading) {
+      console.log('Blocked by phase or loading:', { phase, loading });
+      return;
+    }
+    if (mode === "HUMAN_VS_AI" && player === aiColor) {
+      console.log('Blocked: AI turn');
+      return;
+    }
+    if (historyViewMode) {
+      console.log('Exiting history view mode');
+      setHistoryViewMode(false);
+    }
 
     const isValid = validMoves.some((m) => m.row === row && m.col === col);
-    if (!isValid) return;
+    if (!isValid) {
+      console.log('Invalid move');
+      return;
+    }
+
+    console.log('Valid move, checking existing children...');
 
     // If this move already exists in the current branch, just jump to it.
     if (moveTreeRef.current && currentNodeId && moveTreeRef.current.has(currentNodeId)) {
@@ -431,10 +516,13 @@ export default function App() {
         return node && node.player === player && node.row === row && node.col === col;
       });
       if (existingChildId) {
+        console.log('Found existing move, jumping to:', existingChildId);
         jumpToNodeId(existingChildId, false);
         return;
       }
     }
+
+    console.log('Making new move...');
 
     try {
       setLoading(true);
@@ -449,7 +537,9 @@ export default function App() {
       }
       setAiState('idle'); // Reset AI state when human makes a move
 
+      console.log('Calling makeMove API...');
       const res = await makeMove({ board, player, row, col });
+      console.log('API response received:', res);
 
       setBoard(res.board);
 
@@ -772,8 +862,21 @@ export default function App() {
 
   // Resume AI function
   function resumeAI() {
+    console.log('Resuming AI from paused state');
+    console.log('Current state before resume:', { 
+      phase, 
+      mode, 
+      player, 
+      aiColor, 
+      loading, 
+      historyViewMode, 
+      aiState 
+    });
+    
     setHistoryViewMode(false); // Exit history view mode
     setAiState('idle'); // This will trigger the AI useEffect to run
+    
+    console.log('AI state set to idle, useEffect should trigger');
   }
 
   // Cancel AI function
@@ -802,11 +905,11 @@ export default function App() {
         gameInfo: {
           mode: mode,
           humanColor: humanColor,
-          difficulty: difficulty,
+          difficulty: difficulty, // Keep difficulty - it's important
           phase: phase,
           winner: winner,
           finalScore: finalScore,
-          aiState: aiState, // Include AI state in autosave
+          // Still don't save aiState - this was definitely causing loops
           timestamp: new Date().toISOString(),
           version: "1.0"
         }
@@ -826,33 +929,78 @@ export default function App() {
       const gameData = JSON.parse(savedData);
       if (!gameData || !gameData.moveTree || !gameData.gameInfo) return false;
 
-      // Restore move tree
-      moveTreeRef.current = new Map(gameData.moveTree);
-      
-      // Restore game state
-      setCurrentNodeId(gameData.currentNodeId);
+      console.log('Autoloading game with', gameData.moveTree.length, 'nodes');
+
+      // Restore basic game settings
       setMode(gameData.gameInfo.mode);
       setHumanColor(gameData.gameInfo.humanColor);
       setDifficulty(gameData.gameInfo.difficulty || "medium");
-      setPhase(gameData.gameInfo.phase);
-      setWinner(gameData.gameInfo.winner);
-      setFinalScore(gameData.gameInfo.finalScore);
       
-      // Handle AI state restoration for reload scenario
-      const savedAiState = gameData.gameInfo.aiState || 'idle';
-      const wasAiThinking = savedAiState === 'thinking';
-      
-      // Set AI state first
-      if (wasAiThinking) {
-        // AI was thinking when page closed - pause it and let user decide
-        setAiState('paused');
-      } else {
-        setAiState(savedAiState);
+      // Restore game phase and end state if applicable
+      if (gameData.gameInfo.phase) {
+        setPhase(gameData.gameInfo.phase);
+      }
+      if (gameData.gameInfo.winner !== undefined) {
+        setWinner(gameData.gameInfo.winner);
+      }
+      if (gameData.gameInfo.finalScore) {
+        setFinalScore(gameData.gameInfo.finalScore);
       }
       
-      // Jump to the current position to restore board state, preserving AI state
+      // Start with initial state for board/player - will be updated by jumpToNodeId
+      setBoard(initialBoard);
+      setPlayer(1);
+      setValidMoves(initialValidMoves);
+      setAiState('idle');
+      setHistoryViewMode(false);
+      setLoading(false); // Ensure loading is false
+      
+      // Restore the complete move tree instead of just replaying main line
+      console.log('Restoring complete move tree with', gameData.moveTree.length, 'nodes');
+      
+      // Restore the complete move tree
+      moveTreeRef.current = new Map(gameData.moveTree);
+      
+      // Update the node ID counter to match the highest ID in the restored tree
+      let maxNodeId = 0;
+      for (const [nodeId, node] of moveTreeRef.current) {
+        if (nodeId !== "root" && nodeId.startsWith("n")) {
+          const numericId = parseInt(nodeId.substring(1));
+          if (!isNaN(numericId) && numericId > maxNodeId) {
+            maxNodeId = numericId;
+          }
+        }
+      }
+      moveTreeNodeIdRef.current = maxNodeId;
+      console.log('Restored move tree node counter to:', maxNodeId);
+      
+      // Restore to the saved position
       if (gameData.currentNodeId && moveTreeRef.current.has(gameData.currentNodeId)) {
-        jumpToNodeId(gameData.currentNodeId, false, true); // preserveAiState = true
+        setTimeout(() => {
+          console.log('Jumping to saved position:', gameData.currentNodeId);
+          jumpToNodeId(gameData.currentNodeId, false, true); // preserveAiState = true to avoid triggering AI immediately
+          
+          // Set proper AI state after restoration
+          const currentNode = moveTreeRef.current.get(gameData.currentNodeId);
+          if (currentNode && currentNode.nextPlayer === aiColor && mode === "HUMAN_VS_AI") {
+            console.log('Setting AI to paused after tree restoration');
+            setAiState('paused');
+          } else {
+            console.log('Setting AI to idle after tree restoration');
+            setAiState('idle');
+          }
+        }, 100);
+      } else {
+        // Fallback to root if saved position doesn't exist
+        console.log('Saved position not found, staying at root');
+        setCurrentNodeId("root");
+        
+        // Set initial state
+        setBoard(initialBoard);
+        setPlayer(1);
+        setValidMoves(initialValidMoves);
+        setPhase("PLAYING");
+        setAiState('idle');
       }
       
       return true;
@@ -860,6 +1008,151 @@ export default function App() {
       console.error('Failed to autoload game:', error);
       return false;
     }
+  }
+
+  // Extract the main line move sequence from a move tree
+  function extractMoveSequence(moveTree) {
+    const moves = [];
+    if (!moveTree.has("root")) return moves;
+    
+    let currentId = "root";
+    while (currentId && moveTree.has(currentId)) {
+      const node = moveTree.get(currentId);
+      if (node.id !== "root" && node.row !== null && node.col !== null) {
+        moves.push({
+          row: node.row,
+          col: node.col,
+          player: node.player
+        });
+      }
+      
+      // Follow main line (first child)
+      if (node.children && node.children.length > 0) {
+        currentId = node.children[0];
+      } else {
+        break;
+      }
+    }
+    
+    return moves;
+  }
+
+  // Replay a sequence of moves
+  async function replayMoves(moves) {
+    console.log('Starting replay of', moves.length, 'moves');
+    
+    // Track local state during replay to avoid React state update delays
+    let currentBoard = initialBoard.map(r => r.slice());
+    let currentPlayer = 1;
+    let currentNodeId = "root";
+    
+    for (let i = 0; i < moves.length; i++) {
+      const move = moves[i];
+      console.log(`Replaying move ${i + 1}/${moves.length}:`, move);
+      
+      try {
+        // Make the move via API using local state
+        const res = await makeMove({ 
+          board: currentBoard, 
+          player: currentPlayer, 
+          row: move.row, 
+          col: move.col 
+        });
+
+        console.log(`Move ${i + 1} API response:`, { 
+          gameOver: res.game_over, 
+          nextPlayer: res.next_player,
+          flippedCount: res.flipped?.length || 0
+        });
+
+        // Update local state
+        currentBoard = res.board;
+        currentPlayer = res.next_player;
+
+        // Add to move tree
+        ensureMoveTreeRoot(currentBoard);
+        const parentNode = moveTreeRef.current.get(currentNodeId);
+        
+        if (parentNode) {
+          const nodeId = nextMoveTreeNodeId();
+          const node = {
+            id: nodeId,
+            player: move.player,
+            row: move.row,
+            col: move.col,
+            boardAfter: res.board.map((r) => r.slice()),
+            flipped: res.flipped || [],
+            nextPlayer: res.game_over ? null : res.next_player,
+            validMovesNext: res.game_over ? [] : normalizeMoves(res.valid_moves),
+            parentId: parentNode.id,
+            children: [],
+          };
+          moveTreeRef.current.set(nodeId, node);
+          parentNode.children.push(nodeId);
+          currentNodeId = nodeId;
+        }
+
+        // Handle game over
+        if (res.game_over) {
+          console.log('Game over detected during replay');
+          const score = countPieces(res.board);
+          setFinalScore(score);
+          if (res.winner === 1) setWinner(1);
+          else if (res.winner === -1) setWinner(-1);
+          else setWinner("DRAW");
+          setPhase("GAME_OVER");
+          break;
+        }
+
+        // Small delay between moves to prevent overwhelming the API
+        await new Promise(resolve => setTimeout(resolve, 30));
+      } catch (error) {
+        console.error('Failed to replay move:', move, error);
+        
+        // If it's a network error, show a user-friendly message
+        if (error.message.includes('Network error') || error.message.includes('CORS')) {
+          console.error('Backend appears to be down during replay');
+          alert('Unable to restore game: Backend server is not responding. Please start the backend server and try again.');
+        }
+        
+        // Stop replay on error
+        break;
+      }
+    }
+    
+    console.log('Replay completed. Final state:', {
+      currentPlayer,
+      currentNodeId,
+      boardPieces: countPieces(currentBoard)
+    });
+    
+    // Update React state with final values after replay is complete
+    setBoard(currentBoard);
+    setPlayer(currentPlayer);
+    setCurrentNodeId(currentNodeId);
+    setLastMove(moves.length > 0 ? { row: moves[moves.length - 1].row, col: moves[moves.length - 1].col } : null);
+    setFlippedTiles([]); // Clear flipped tiles after replay
+    
+    // Fetch valid moves for the final position
+    try {
+      const res = await fetchValidMoves({ board: currentBoard, player: currentPlayer });
+      setValidMoves(normalizeMoves(res.valid_moves));
+      console.log('Valid moves fetched:', res.valid_moves?.length || 0);
+    } catch (e) {
+      console.error('Failed to fetch valid moves after replay:', e);
+      setValidMoves([]);
+    }
+    
+    // After replay is complete, set AI to paused if it's AI's turn
+    if (currentPlayer === aiColor && mode === "HUMAN_VS_AI") {
+      console.log('Setting AI to paused after replay');
+      setAiState('paused');
+    } else {
+      console.log('Setting AI to idle after replay');
+      setAiState('idle');
+    }
+    
+    console.log('Replay function completed');
   }
 
   function clearAutoSave() {
@@ -1401,7 +1694,26 @@ export default function App() {
         setAiState('idle');
       }
     } else if (!preserveAiState && mode === "HUMAN_VS_AI" && jumpedPlayer !== aiColor) {
-      setAiState('idle'); // Human turn, AI is idle
+      // Human turn - but check the context
+      if (fromHistory && node.children.length > 0) {
+        // Check if any children are AI moves
+        const hasAIChild = node.children.some(childId => {
+          const childNode = moveTreeRef.current.get(childId);
+          return childNode && childNode.player === aiColor;
+        });
+        
+        if (hasAIChild) {
+          // There are existing AI moves after this position, don't show AI prompts
+          // The user can navigate to the AI moves if they want
+          setAiState('idle');
+        } else {
+          // No AI moves exist after this human move, AI could potentially play here
+          // But don't automatically trigger AI when navigating via history
+          setAiState('idle');
+        }
+      } else {
+        setAiState('idle'); // Human turn, AI is idle
+      }
     }
 
     // Prefer the stored valid moves for this node/branch.
@@ -1535,66 +1847,95 @@ export default function App() {
             currentPlayer={player}
           />
 
-          {/* AI Status Panel */}
-          {mode === "HUMAN_VS_AI" && phase === "PLAYING" && player === aiColor && (
-            <div className="ai-status-panel">
-              {aiState === 'thinking' && (
-                <div className="ai-status-card thinking">
-                  <div className="ai-status-content">
-                    <div className="ai-status-icon">
-                      <div className="ai-spinner"></div>
+          {/* AI Status Panel - Always reserve space */}
+          <div className="ai-status-panel-container">
+            {(() => {
+              // Only show AI status panel in specific conditions
+              if (mode !== "HUMAN_VS_AI" || phase !== "PLAYING" || player !== aiColor) {
+                return null;
+              }
+              
+              // If we're in history view mode, don't show AI panel
+              if (historyViewMode) {
+                return null;
+              }
+              
+              // If we're at a position where AI has already played (has AI children), don't show panel
+              if (currentNodeId && moveTreeRef.current.has(currentNodeId)) {
+                const currentNode = moveTreeRef.current.get(currentNodeId);
+                if (currentNode && currentNode.children.length > 0) {
+                  const hasAIChild = currentNode.children.some(childId => {
+                    const childNode = moveTreeRef.current.get(childId);
+                    return childNode && childNode.player === aiColor;
+                  });
+                  if (hasAIChild) {
+                    return null; // AI has already played from this position
+                  }
+                }
+              }
+              
+              // Show AI status panel
+              return (
+                <div className="ai-status-panel">
+                {aiState === 'thinking' && (
+                  <div className="ai-status-card thinking">
+                    <div className="ai-status-content">
+                      <div className="ai-status-icon">
+                        <div className="ai-spinner"></div>
+                      </div>
+                      <div className="ai-status-text">
+                        <div className="ai-status-title">AI is thinking...</div>
+                        <div className="ai-status-subtitle">Analyzing the best move</div>
+                      </div>
                     </div>
-                    <div className="ai-status-text">
-                      <div className="ai-status-title">AI is thinking...</div>
-                      <div className="ai-status-subtitle">Analyzing the best move</div>
-                    </div>
+                    <button className="ai-action-btn cancel-btn" onClick={cancelAI}>
+                      Cancel
+                    </button>
                   </div>
-                  <button className="ai-action-btn cancel-btn" onClick={cancelAI}>
-                    Cancel
-                  </button>
-                </div>
-              )}
-              {(aiState === 'paused' || (aiState === 'idle' && historyViewMode)) && (
-                <div className="ai-status-card paused">
-                  <div className="ai-status-content">
-                    <div className="ai-status-icon">
-                      <svg className="ai-pause-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
-                        <circle cx="12" cy="12" r="10"/>
-                        <path d="M10 15l4-4-4-4"/>
-                      </svg>
+                )}
+                {(aiState === 'paused' || (aiState === 'idle' && historyViewMode)) && (
+                  <div className="ai-status-card paused">
+                    <div className="ai-status-content">
+                      <div className="ai-status-icon">
+                        <svg className="ai-pause-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+                          <circle cx="12" cy="12" r="10"/>
+                          <path d="M10 15l4-4-4-4"/>
+                        </svg>
+                      </div>
+                      <div className="ai-status-text">
+                        <div className="ai-status-title">AI interrupted</div>
+                        <div className="ai-status-subtitle">Ready to continue when you are</div>
+                      </div>
                     </div>
-                    <div className="ai-status-text">
-                      <div className="ai-status-title">AI interrupted</div>
-                      <div className="ai-status-subtitle">Ready to continue when you are</div>
-                    </div>
+                    <button className="ai-action-btn start-btn" onClick={resumeAI}>
+                      Start AI
+                    </button>
                   </div>
-                  <button className="ai-action-btn start-btn" onClick={resumeAI}>
-                    Start AI
-                  </button>
-                </div>
-              )}
-              {aiState === 'cancelled' && (
-                <div className="ai-status-card cancelled">
-                  <div className="ai-status-content">
-                    <div className="ai-status-icon">
-                      <svg className="ai-cancel-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
-                        <circle cx="12" cy="12" r="10"/>
-                        <path d="15 9l-6 6"/>
-                        <path d="9 9l6 6"/>
-                      </svg>
+                )}
+                {aiState === 'cancelled' && (
+                  <div className="ai-status-card cancelled">
+                    <div className="ai-status-content">
+                      <div className="ai-status-icon">
+                        <svg className="ai-cancel-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+                          <circle cx="12" cy="12" r="10"/>
+                          <path d="15 9l-6 6"/>
+                          <path d="9 9l6 6"/>
+                        </svg>
+                      </div>
+                      <div className="ai-status-text">
+                        <div className="ai-status-title">AI stopped</div>
+                        <div className="ai-status-subtitle">Your turn - make a move or restart AI</div>
+                      </div>
                     </div>
-                    <div className="ai-status-text">
-                      <div className="ai-status-title">AI stopped</div>
-                      <div className="ai-status-subtitle">Your turn - make a move or restart AI</div>
-                    </div>
+                    <button className="ai-action-btn start-btn" onClick={resumeAI}>
+                      Start AI
+                    </button>
                   </div>
-                  <button className="ai-action-btn start-btn" onClick={resumeAI}>
-                    Start AI
-                  </button>
-                </div>
-              )}
-            </div>
-          )}
+                )}
+              </div>
+              );
+            })()}
+          </div>
 
           {/* Only show "Thinking..." for human moves in human vs human mode */}
           {loading && phase === "PLAYING" && mode === "HUMAN_VS_HUMAN" && (
@@ -1755,6 +2096,192 @@ export default function App() {
             );
           })()}
         </div>
+
+        {/* Mobile Sidebar Toggle Button */}
+        <button 
+          className={`mobile-sidebar-toggle ${showMobileSidebar ? 'active' : ''}`}
+          onClick={() => setShowMobileSidebar(!showMobileSidebar)}
+          title="Toggle move history"
+        >
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+            {showMobileSidebar ? (
+              <path d="M18 6L6 18M6 6l12 12"/>
+            ) : (
+              <path d="M3 6h18M3 12h18M3 18h18"/>
+            )}
+          </svg>
+        </button>
+
+        {/* Mobile Sidebar Overlay */}
+        {showMobileSidebar && (
+          <div className="mobile-sidebar-overlay" onClick={() => setShowMobileSidebar(false)}>
+            <div className="mobile-sidebar" onClick={(e) => e.stopPropagation()}>
+              <div className="mobile-sidebar-header">
+                <h3>Move History</h3>
+                <button 
+                  className="mobile-sidebar-close"
+                  onClick={() => setShowMobileSidebar(false)}
+                >
+                  <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+                    <path d="M18 6L6 18M6 6l12 12"/>
+                  </svg>
+                </button>
+              </div>
+              <div className="mobile-sidebar-content">
+                <div className="keyboard-shortcuts">
+                  <small>Use ← → ↑ ↓ keys to navigate</small>
+                </div>
+                {currentNodeId && currentNodeId !== "root" && (
+                  <div className="current-path">
+                    {(() => {
+                      const path = [];
+                      let nodeId = currentNodeId;
+                      while (nodeId && moveTreeRef.current.has(nodeId)) {
+                        const node = moveTreeRef.current.get(nodeId);
+                        if (node.id !== "root") {
+                          path.unshift(node);
+                        }
+                        nodeId = node.parentId;
+                      }
+                      return (
+                        <span className="path-indicator">
+                          Move {Math.ceil(path.length / 2)} 
+                          {path.length > 0 && ` • ${colorName(path[path.length - 1].player)}`}
+                        </span>
+                      );
+                    })()}
+                  </div>
+                )}
+                {(() => {
+                  if (!moveTreeRef.current || !moveTreeRef.current.has("root")) {
+                    return (
+                      <div className="move-tree-empty">
+                        <div className="muted">No moves yet</div>
+                      </div>
+                    );
+                  }
+
+                  const rootNode = moveTreeRef.current.get("root");
+                  if (!rootNode || rootNode.children.length === 0) {
+                    return (
+                      <div className="move-tree-empty">
+                        <div className="muted">No moves yet</div>
+                      </div>
+                    );
+                  }
+
+                  function renderMoveTree(nodeId, depth = 0, isBranch = false) {
+                    if (!nodeId || !moveTreeRef.current.has(nodeId)) return null;
+                    
+                    const node = moveTreeRef.current.get(nodeId);
+                    if (!node || node.id === "root") {
+                      // Render root's children - all are main line initially
+                      return (
+                        <div className="move-tree-root">
+                          {node.children.map((childId) => 
+                            renderMoveTree(childId, 0, false)
+                          )}
+                        </div>
+                      );
+                    }
+
+                    const isActive = currentNodeId === node.id;
+                    const isHovered = hoveredNodeId === node.id;
+                    const hasMultipleChildren = node.children.length > 1;
+                    const moveLabel = moveLabelFromNode(node);
+                    const isPass = node.row === null || node.col === null;
+                    
+                    // Calculate sequential move number for Othello
+                    let moveNumber = 0;
+                    let currentId = node.id;
+                    while (currentId && moveTreeRef.current.has(currentId)) {
+                      const currentNode = moveTreeRef.current.get(currentId);
+                      if (currentNode.parentId) {
+                        moveNumber++;
+                      }
+                      currentId = currentNode.parentId;
+                    }
+                    const displayMoveNumber = moveNumber;
+
+                    const result = [];
+
+                    // Render this move
+                    result.push(
+                      <div key={node.id} className={`move-tree-node depth-${depth} ${isBranch ? 'branch-line' : 'main-line'}`}>
+                        <div className="move-node-content">
+                          {depth > 0 && <div className="branch-connector" />}
+                          
+                          <button
+                            type="button"
+                            className={`move-btn ${isActive ? 'active' : ''} ${isHovered ? 'hovered' : ''} ${isPass ? 'pass-move' : ''}`}
+                            onClick={() => {
+                              jumpToNodeId(node.id, true);
+                              setShowMobileSidebar(false); // Close sidebar after selection
+                            }}
+                            onMouseEnter={() => setHoveredNodeId(node.id)}
+                            onMouseLeave={() => setHoveredNodeId(null)}
+                            title={isPass ? `${colorName(node.player)} passes` : `${colorName(node.player)} plays ${moveLabel}`}
+                          >
+                            <span className="move-number">{displayMoveNumber}.</span>
+                            <span className={`player-indicator ${node.player === 1 ? 'black' : 'white'}`} />
+                            <span className="move-text">
+                              {isPass ? 'pass' : moveLabel}
+                            </span>
+                            {hasMultipleChildren && (
+                              <span className="branch-indicator" title={`${node.children.length} variations`}>
+                                ({node.children.length})
+                              </span>
+                            )}
+                            {/* Show piece count change */}
+                            {!isPass && node.flipped && node.flipped.length > 0 && (
+                              <span className="capture-count" title={`Flipped ${node.flipped.length} pieces`}>
+                                +{node.flipped.length}
+                              </span>
+                            )}
+                          </button>
+                        </div>
+                      </div>
+                    );
+
+                    // If this node has children, we need to handle them specially
+                    if (node.children.length > 0) {
+                      // Sort children by creation time to maintain order
+                      const sortedChildren = [...node.children].sort((a, b) => {
+                        const nodeA = moveTreeRef.current.get(a);
+                        const nodeB = moveTreeRef.current.get(b);
+                        // Extract numeric part from node IDs (n1, n2, etc.)
+                        const idA = parseInt(nodeA.id.substring(1));
+                        const idB = parseInt(nodeB.id.substring(1));
+                        return idA - idB;
+                      });
+
+                      // First child continues the main line
+                      const [mainChild, ...branchChildren] = sortedChildren;
+                      
+                      // Render branch children first (they appear right after this move)
+                      branchChildren.forEach(childId => {
+                        result.push(renderMoveTree(childId, depth + 1, true));
+                      });
+                      
+                      // Then render main line continuation
+                      if (mainChild) {
+                        result.push(renderMoveTree(mainChild, depth, false));
+                      }
+                    }
+
+                    return result;
+                  }
+
+                  return (
+                    <div className="move-tree-container">
+                      {renderMoveTree("root")}
+                    </div>
+                  );
+                })()}
+              </div>
+            </div>
+          </div>
+        )}
       </div>
 
       {/* ---------- SETUP OVERLAY ---------- */}
