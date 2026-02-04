@@ -2386,10 +2386,11 @@ export default function App() {
             </div>
 
             <div className="setup-footer">
-              <button className="start-game-btn" onClick={startGame}>
+              <button className="start-game-btn" onClick={startGame} disabled aria-disabled="true">
                 <span>Start Game</span>
                 <div className="btn-arrow">→</div>
               </button>
+              <div className="maintenance-note">sorryyyyy under maintainance 🧸</div>
             </div>
           </div>
         </div>
